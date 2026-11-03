@@ -1,0 +1,100 @@
+"use client";
+
+// Before any page: sign in with Google, then be a member of the shop. The first person in an empty shop claims it.
+// Also shows a failed save at the bottom of the screen, on every page.
+import { Brand } from "./Shell";
+import { Icon } from "./icons";
+import { useSaleBook } from "./store";
+import { Loading } from "./ui";
+
+function GateCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="gate">
+      <div className="gate-card">
+        <Brand />
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SaveError() {
+  const { error, clearError } = useSaleBook();
+  if (!error) return null;
+  return (
+    <div className="save-error" role="alert">
+      <div className="banner">
+        <Icon name="alert" size={20} />
+        <span className="stack" style={{ flex: 1, lineHeight: 1.5 }}>
+          <span className="strong">មិនអាចរក្សាទុកបានទេ</span>
+          <span style={{ fontSize: 12 }}>{error}</span>
+        </span>
+        <button type="button" className="row-btn" onClick={clearError} aria-label="បិទ">
+          <Icon name="close" size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function Gate({ children }: { children: React.ReactNode }) {
+  const { access, ready, signIn, signOut, claimShop } = useSaleBook();
+  const out = (
+    <button type="button" className="btn btn-default" onClick={() => void signOut()}>
+      <Icon name="logout" size={16} />
+      ចេញ ហើយប្រើគណនីផ្សេង
+    </button>
+  );
+
+  let body: React.ReactNode;
+  if (access.status === "loading" || (access.status === "member" && !ready)) {
+    body = <Loading />;
+  } else if (access.status === "signedOut") {
+    body = (
+      <GateCard>
+        <h1>ចូលប្រើសៀវភៅលក់</h1>
+        <p>ចូលដោយគណនី Google របស់អ្នក</p>
+        <button type="button" className="btn btn-outline" onClick={() => void signIn()}>
+          <Icon name="google" />
+          ចូលដោយ Google
+        </button>
+      </GateCard>
+    );
+  } else if (access.status === "unclaimed") {
+    body = (
+      <GateCard>
+        <h1>ហាងនេះមិនទាន់មានម្ចាស់</h1>
+        <p>
+          អ្នកជាមនុស្សដំបូងដែលចូល · ធ្វើជាម្ចាស់ហាង ដើម្បីចាប់ផ្តើម។ ក្រោយមក ម្ចាស់ហាងបន្ថែមអ្នកផ្សេងទៀត នៅទំព័រគណនី។
+        </p>
+        <span className="sub">
+          <b>{access.email}</b>
+        </span>
+        <button type="button" className="btn btn-primary" onClick={() => void claimShop()}>
+          ធ្វើជាម្ចាស់ហាង
+        </button>
+        {out}
+      </GateCard>
+    );
+  } else if (access.status === "noAccess") {
+    body = (
+      <GateCard>
+        <h1>គណនីនេះមិនទាន់មានសិទ្ធិ</h1>
+        <p>សុំម្ចាស់ហាងបន្ថែមអ៊ីមែលនេះ នៅទំព័រគណនី។ ពេលបន្ថែមរួច ទំព័រនេះបើកដោយខ្លួនឯង។</p>
+        <span className="sub">
+          <b>{access.email}</b>
+        </span>
+        {out}
+      </GateCard>
+    );
+  } else {
+    body = children;
+  }
+
+  return (
+    <>
+      {body}
+      <SaveError />
+    </>
+  );
+}

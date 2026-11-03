@@ -1,0 +1,93 @@
+rules_version = '2';
+
+// Who may use the sales book: Google accounts whose email is listed under /members.
+// The first person to sign in to an empty shop becomes its owner (made together with /meta/bootstrap);
+// after that only an owner can add or remove people.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null && request.auth.token.email_verified == true;
+    }
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+    function memberDoc() {
+      return /databases/$(database)/documents/members/$(myEmail());
+    }
+    function isMember() {
+      return signedIn() && exists(memberDoc());
+    }
+    function isOwner() {
+      return isMember() && get(memberDoc()).data.role == 'owner';
+    }
+    function bootstrapped() {
+      return exists(/databases/$(database)/documents/meta/bootstrap);
+    }
+
+    // ---------- Access ----------
+
+    match /meta/bootstrap {
+      allow read: if signedIn();
+      // Claimed once, in the same write as the owner's own member document.
+      allow create: if signedIn() && !bootstrapped()
+        && request.resource.data.owner == myEmail()
+        && existsAfter(memberDoc());
+    }
+
+    match /members/{email} {
+      allow read: if signedIn() && (email == myEmail() || isMember());
+      // The first owner, together with /meta/bootstrap.
+      allow create: if signedIn() && email == myEmail() && !bootstrapped()
+        && request.resource.data.role == 'owner'
+        && existsAfter(/databases/$(database)/documents/meta/bootstrap);
+      allow create, update: if isOwner() && email == email.lower()
+        && request.resource.data.role in ['owner', 'member'];
+      // An owner cannot remove themselves, so the shop always keeps one.
+      allow delete: if isOwner() && email != myEmail();
+    }
+
+    // ---------- The book ----------
+
+    function isMoney(v) {
+      return v is int || v is float;
+    }
+
+    match /settings/{doc} {
+      allow read, write: if isMember();
+    }
+    match /months/{monthId} {
+      allow read, write: if isMember();
+    }
+    match /weeks/{weekKey} {
+      allow read, write: if isMember();
+    }
+    match /settlements/{monthId} {
+      allow read, write: if isMember();
+    }
+
+    match /orders/{id} {
+      function validOrder(d) {
+        return d.keys().hasAll(['weekKey', 'monthId', 'mart', 'no', 'code', 'cost', 'sale', 'status', 'items'])
+          && d.weekKey is string && d.monthId is string && d.mart is string
+          && d.no is int && d.code is string && d.code.size() <= 40
+          && isMoney(d.cost) && isMoney(d.sale)
+          && d.status in ['p', 'u', 'x']
+          && d.items is list && d.items.size() <= 200;
+      }
+      allow read, delete: if isMember();
+      allow create, update: if isMember() && validOrder(request.resource.data);
+    }
+
+    match /notes/{id} {
+      function validNote(d) {
+        return d.keys().hasAll(['weekKey', 'monthId', 'code', 'due', 'amount', 'note', 'collected', 'flagged'])
+          && d.weekKey is string && d.monthId is string
+          && d.code is string && d.due is string && isMoney(d.amount) && d.note is string
+          && d.collected is bool && d.flagged is bool;
+      }
+      allow read, delete: if isMember();
+      allow create, update: if isMember() && validNote(request.resource.data);
+    }
+  }
+}

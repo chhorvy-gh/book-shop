@@ -1,0 +1,33 @@
+{
+  "name": "sale-management",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "emulators": "firebase emulators:start --only firestore,auth --project demo-salebook",
+    "dev:emulators": "cross-env NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true next dev",
+    "deploy:rules": "firebase deploy --only firestore:rules --project bookshop-af0f4"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "firebase": "^13.2.0",
+    "next": "16.2.9",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "cross-env": "^10.1.0",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "firebase-tools": "^13.35.1",
+    "sass": "^1.101.0",
+    "typescript": "^5"
+  }
+}

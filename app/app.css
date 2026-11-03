@@ -1,0 +1,46 @@
+/* What the app adds to the mockup's look (mockup.css): the fonts from next/font, the sign-in screens,
+   the account page and small states the mockup did not need. Uses the mockup's tokens only. */
+
+:root {
+  --font: var(--font-inter), var(--font-kantumruy), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* ---------- Sign-in and other full-screen states ---------- */
+.gate { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+.gate-card {
+  width: min(420px, 100%); padding: 32px 28px; border-radius: 24px; background: var(--surface); border: 1px solid var(--sep);
+  display: flex; flex-direction: column; gap: 20px; text-align: center; align-items: center;
+}
+.gate-card .brand { justify-content: center; padding: 0; text-align: left; }
+.gate-card h1 { margin: 0; font-size: 20px; line-height: 1.4; font-weight: 700; }
+.gate-card p { margin: 0; color: var(--muted); }
+.gate-card .btn { width: 100%; }
+.gate-card .sub b { color: var(--fg); }
+.spinner {
+  width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--surface-3); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.page-loading { min-height: 50vh; display: grid; place-items: center; }
+
+/* ---------- Sidebar: who is signed in ---------- */
+.user-card { display: flex; align-items: center; gap: 10px; padding: 8px 8px 0; min-width: 0; }
+.user-card .avatar { width: 32px; height: 32px; font-size: 13px; }
+.user-card .stack { flex: 1 1 auto; }
+.user-card .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 800px) {
+  .user-card { display: none; }
+}
+
+/* ---------- Status line under a page's period bar ---------- */
+.page-note { margin: -8px 0 0; font-size: 13px; }
+
+/* ---------- Something went wrong while saving ---------- */
+.save-error { position: fixed; z-index: 30; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); }
+.save-error .banner { background: var(--surface); box-shadow: var(--shadow-phone); border: 1px solid var(--danger); color: var(--danger-soft-fg); }
+
+/* ---------- Account page ---------- */
+.member-list { margin: 0; padding: 0; list-style: none; }
+.member-list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--sep); }
+.member-list li:first-child { border-top: 0; }
+.member-list .stack { flex: 1 1 auto; }
