@@ -401,7 +401,7 @@ table.data th:last-child, table.data td:last-child { padding-right: 20px; }
 table.data tbody tr:hover { background: var(--surface-2); }
 table.data tbody tr.is-new { background: var(--accent-soft); }
 table.data tbody tr.is-cancelled td { text-decoration: line-through; color: var(--muted); }
-table.data tbody tr.is-cancelled td:nth-last-child(-n+2) { text-decoration: none; }
+table.data tbody tr.is-cancelled td:nth-last-child(-n+3) { text-decoration: none; }
 table.data tbody tr.is-done { opacity: 0.6; }
 /* A tick column: ticked rows stand out, and a bar above the table says how many are ticked and acts on all of them. */
 table.data th.cell-check, table.data td.cell-check { padding-right: 0; text-overflow: clip; }

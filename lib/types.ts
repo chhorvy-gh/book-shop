@@ -20,6 +20,7 @@ export interface Order {
   sale: number;
   status: Status;
   items: Item[];
+  sent?: boolean; // the goods have gone out to the customer (បានផ្ញើ); apart from being paid
 }
 
 // A seller and the letters their order codes start with: code ហេង → ហេង1, ហេង2 …

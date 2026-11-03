@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { copyText } from "@/lib/clipboard";
 import { fmt } from "@/lib/format";
-import { STATUS, saleLines } from "@/lib/orders";
+import { SENT, STATUS, saleLines } from "@/lib/orders";
 import type { Order } from "@/lib/types";
 import { Icon } from "../icons";
 import { Dialog, chipClass } from "../ui";
@@ -65,7 +65,10 @@ function ViewForm({ order, meta, seller, onClose, onEdit, onPrint }: Props & { o
           </h2>
           <span className="sub">{seller ? `អ្នកលក់៖ ${seller}` : "មិនស្គាល់អ្នកលក់"}</span>
         </div>
-        <span className={chipClass(status.tone)}>{status.label}</span>
+        <span style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
+          <span className={chipClass(status.tone)}>{status.label}</span>
+          {order.status !== "x" && <span className={chipClass(order.sent ? "accent" : "default")}>{order.sent ? SENT.yes : SENT.no}</span>}
+        </span>
       </div>
       <div className="view-items-wrap">
         <table className="view-items">

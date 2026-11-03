@@ -71,6 +71,7 @@ export interface OrderDoc {
   sale: number;
   status: Status;
   items: Item[];
+  sent?: boolean; // sent to the customer; missing on orders from before = not sent
   at: number; // when it was added (ms), for a steady order
   by?: string;
 }
@@ -171,6 +172,7 @@ export const toOrder = (id: string, d: OrderDoc): Order => ({
   sale: d.sale,
   status: d.status,
   items: d.items ?? [],
+  sent: !!d.sent,
 });
 export const toNote = (id: string, d: NoteDoc): Note => ({
   id,

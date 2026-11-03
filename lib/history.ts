@@ -4,7 +4,7 @@ import type { Tone } from "@/components/ui";
 import { splitWeekKey, type HistoryAct, type HistoryDoc, type HistoryKind } from "./db";
 import { fmt, num } from "./format";
 import { dueInfo } from "./logic/due";
-import { STATUS } from "./orders";
+import { SENT, STATUS } from "./orders";
 import { martLabel, monthLabel, weekLabel } from "./periods";
 import { TRASH_NAME } from "./trash";
 import type { Item, Note, Order, SaleBookState, Status } from "./types";
@@ -118,7 +118,7 @@ export function findNote(s: SaleBookState, id: string) {
 
 // The fields each kind of line can show, in the order they show, with their names on the pages.
 const FIELDS: Record<HistoryKind, Record<string, string>> = {
-  order: { no: "លេខ", code: "កូដ", cost: "លុយដើម", sale: "លុយលក់", status: "ស្ថានភាព", items: "មុខទំនិញ" },
+  order: { no: "លេខ", code: "កូដ", cost: "លុយដើម", sale: "លុយលក់", status: "ស្ថានភាព", items: "មុខទំនិញ", sent: "ការផ្ញើ" },
   note: { no: "លេខ", code: "កូដ", due: "ថ្ងៃកំណត់", amount: "ចំនួនលុយ", note: "កំណត់ចំណាំ", collected: "ស្ថានភាព", flagged: "ពណ៌លឿង" },
   payout: { deduct: "ដក", add: "បូក", paid: "បានបើក" },
   deduct: { value: "ដក" },
@@ -144,6 +144,7 @@ export const monthOfId = (id: string) => ({ y: Number(id.slice(0, 4)), m: Number
 // One value as the pages show it: riel with commas, dollars as typed, statuses and roles by name.
 function shown(e: HistoryDoc, field: string, v: unknown): string {
   if (field === "collected") return v ? "បានប្រមូល" : "មិនទាន់ប្រមូល";
+  if (field === "sent") return v ? SENT.yes : SENT.no;
   if (field === "flagged") return v ? "សម្គាល់" : "មិនសម្គាល់";
   if (field === "paid") return v ? "បានបើក" : "មិនទាន់បើក";
   if (v === null || v === undefined || v === "") return "—";

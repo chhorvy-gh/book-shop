@@ -11,7 +11,7 @@ import { fmt, latinDigits, margin, prefixOf, signed } from "@/lib/format";
 import { NEXT_STATUS, STATUS, findCode, nextCodeNumber, sumItems, totals } from "@/lib/orders";
 import { monthLabel, pickedWeek, weekKey, weekLabel, weekMarts, weekRange } from "@/lib/periods";
 import { TRASH_NAME, trashedWeeks } from "@/lib/trash";
-import type { InvoiceData, Item, Month, Order, Seller, Week } from "@/lib/types";
+import type { InvoiceData, Item, Mart, Month, Order, Seller, Week } from "@/lib/types";
 import DeletePeriodDialog, { type PeriodTarget } from "../dialogs/DeletePeriodDialog";
 import MonthDialog from "../dialogs/MonthDialog";
 import WeekDialog from "../dialogs/WeekDialog";
@@ -202,7 +202,9 @@ function WeekSheet({
   const [editing, setEditing] = useState<Order | null>(null);
   // The order open in the view dialog, by id, so the dialog follows edits made meanwhile (and closes if it goes).
   const [viewingId, setViewingId] = useState<string | null>(null);
-  const viewing = viewingId ? (mart.orders.find((o) => o.id === viewingId) ?? null) : null;
+  // Each order's mart, by order id: a viewer's table holds every mart, and an order shown or printed names its own.
+  const martOf = new Map(marts.flatMap((m) => m.orders.map((o) => [o.id, m] as const)));
+  const viewing = viewingId ? (martOf.has(viewingId) ? (martOf.get(viewingId)!.orders.find((o) => o.id === viewingId) ?? null) : null) : null;
   const [deleting, setDeleting] = useState<Order | null>(null);
   // Ticked rows. They clear when the mart, filter or search changes, so a bulk action only reaches orders on screen.
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -375,9 +377,9 @@ function WeekSheet({
   }
 
   // The invoice is put on the page just for printing, then taken off once the print window closes.
-  function printInvoice(o: Pick<Order, "no" | "code" | "sale" | "status" | "items">) {
+  function printInvoice(o: Pick<Order, "no" | "code" | "sale" | "status" | "items"> & { id?: string }) {
     flushSync(() =>
-      setInvoice({ no: o.no, code: o.code, seller: names.get(prefixOf(o.code)) ?? "", mart: mart.label, period: `${weekLabel(week)} · ${range}`, sale: o.sale, status: o.status, items: o.items }),
+      setInvoice({ no: o.no, code: o.code, seller: names.get(prefixOf(o.code)) ?? "", mart: (o.id && martOf.get(o.id)?.label) || mart.label, period: `${weekLabel(week)} · ${range}`, sale: o.sale, status: o.status, items: o.items }),
     );
     titleBefore.current = document.title;
     setDocTitle(`វិក្កយបត្រ #${o.no}${o.code ? ` ${o.code}` : ""}`);
@@ -393,11 +395,16 @@ function WeekSheet({
     return () => window.removeEventListener("afterprint", done);
   }, []);
 
-  const t = totals(mart.orders);
-  const adj = state.adjustments[key]?.[mart.id] ?? [];
+  // A viewer sees every mart of the week in one table, and the totals and adjustments of all of them.
+  const tableOrders = readOnly ? marts.flatMap((m) => m.orders) : mart.orders;
+  const t = totals(tableOrders);
+  const adjOf = (m: Mart, named: boolean) =>
+    (state.adjustments[key]?.[m.id] ?? []).map(([no, c, amt]) => [no, named ? `${c} · ${m.label}` : c, amt] as [number, string, number]);
+  const adj = readOnly ? marts.flatMap((m) => adjOf(m, marts.length > 1)) : adjOf(mart, false);
   const adjSum = adj.reduce((a, x) => a + x[2], 0);
   const count = (orders: Order[]) => totals(orders).count;
   const meta = `${mart.label} · ${weekLabel(week)} · ${range}`;
+  const viewMeta = viewing ? `${martOf.get(viewing.id)?.label ?? mart.label} · ${weekLabel(week)} · ${range}` : meta;
 
   return (
     <>
@@ -410,7 +417,9 @@ function WeekSheet({
           <h1>តារាងលក់</h1>
         </div>
         <div className="actions" style={{ alignItems: "center" }}>
-          <Tabs label="ជ្រើស Mart" id="sheet-tabs" value={mart.id} onPick={openSheet} items={marts.map((m) => ({ key: m.id, label: m.label, count: count(m.orders) }))} />
+          {!readOnly && (
+            <Tabs label="ជ្រើស Mart" id="sheet-tabs" value={mart.id} onPick={openSheet} items={marts.map((m) => ({ key: m.id, label: m.label, count: count(m.orders) }))} />
+          )}
           {!readOnly && (
             <>
               <button type="button" className="btn btn-outline" onClick={() => setMartOpen(true)}>
@@ -536,7 +545,8 @@ function WeekSheet({
       <div className="split" style={{ gap: 20 }}>
         <OrdersTable
           readOnly={readOnly}
-          orders={mart.orders}
+          martOf={readOnly && marts.length > 1 ? new Map(Array.from(martOf, ([id, m]) => [id, m.label])) : undefined}
+          orders={tableOrders}
           marts={marts}
           names={names}
           originals={originals}
@@ -557,6 +567,7 @@ function WeekSheet({
           newId={newId}
           onChange={patch}
           onToggleStatus={(o) => patch(o, { status: NEXT_STATUS[o.status] })}
+          onToggleSent={(o) => patch(o, { sent: !o.sent })}
           onView={(o) => setViewingId(o.id)}
           onEdit={setEditing}
           onPrint={printInvoice}
@@ -570,7 +581,7 @@ function WeekSheet({
 
         <aside className="grow-side">
           <section className="card" style={{ padding: "20px 24px", gap: 12 }}>
-            <h2 style={{ fontSize: 16 }}>សរុប {mart.label}</h2>
+            <h2 style={{ fontSize: 16 }}>{readOnly && marts.length > 1 ? "សរុបគ្រប់ Mart" : `សរុប ${mart.label}`}</h2>
             <dl className="totals">
               <div>
                 <dt>ការបញ្ជាទិញ</dt>
@@ -638,7 +649,7 @@ function WeekSheet({
 
       <ViewDialog
         order={viewing}
-        meta={meta}
+        meta={viewMeta}
         seller={viewing ? (names.get(prefixOf(viewing.code)) ?? "") : ""}
         onClose={() => setViewingId(null)}
         onEdit={

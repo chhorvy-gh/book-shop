@@ -6,7 +6,7 @@
 // are plain text, with no tick boxes and no cost price or profit, and each row only opens «មើល» or prints.
 import { useState } from "react";
 import { fmt, latinDigits, prefixOf } from "@/lib/format";
-import { STATUS, findCode, totals } from "@/lib/orders";
+import { SENT, STATUS, findCode, totals } from "@/lib/orders";
 import type { Mart, Order } from "@/lib/types";
 import { Icon } from "../icons";
 import { MoneyCell, Tabs, chipClass, moveInColumn } from "../ui";
@@ -18,6 +18,8 @@ export type Originals = Map<string, Pick<Order, "code" | "cost" | "sale">>;
 
 interface Props {
   readOnly?: boolean;
+  // A viewer's table holds every mart of the week: each order's mart label, by order id, shown in its own column.
+  martOf?: Map<string, string>;
   orders: Order[];
   marts: Mart[]; // every mart of the week, for the duplicate-code check
   names: Map<string, string>; // seller code → name
@@ -31,6 +33,7 @@ interface Props {
   newId: string | null;
   onChange: (o: Order, patch: Partial<Pick<Order, "code" | "cost" | "sale">>) => void;
   onToggleStatus: (o: Order) => void;
+  onToggleSent: (o: Order) => void;
   onView: (o: Order) => void;
   onEdit: (o: Order) => void;
   onPrint: (o: Order) => void;
@@ -171,6 +174,7 @@ function Row({ o, props, ticked }: { o: Order; props: Props; ticked: boolean }) 
           {label}
         </button>
       </td>
+      <SentCell o={o} onToggle={() => props.onToggleSent(o)} />
       <td>
         <div className="row-actions tight">
           <button type="button" className="row-btn" aria-label={`មើលការបញ្ជាទិញ ${o.no}`} onClick={() => props.onView(o)}>
@@ -200,6 +204,7 @@ function ReadRow({ o, props }: { o: Order; props: Props }) {
   return (
     <tr id={`order-${o.id}`} className={cancelled ? "is-cancelled" : undefined}>
       <td className="muted">{o.no}</td>
+      {props.martOf && <td className="muted">{props.martOf.get(o.id) ?? ""}</td>}
       <td className="strong">{o.code || "—"}</td>
       <td>
         <SellerChip name={props.names.get(prefixOf(o.code))} cancelled={cancelled} />
@@ -208,6 +213,7 @@ function ReadRow({ o, props }: { o: Order; props: Props }) {
       <td>
         <span className={chipClass(tone)}>{label}</span>
       </td>
+      <SentCell o={o} />
       <td>
         <div className="row-actions tight">
           <button type="button" className="row-btn" aria-label={`មើលការបញ្ជាទិញ ${o.no}`} onClick={() => props.onView(o)}>
@@ -220,6 +226,24 @@ function ReadRow({ o, props }: { o: Order; props: Props }) {
         </div>
       </td>
     </tr>
+  );
+}
+
+// Sent or not: a chip, which an editor clicks to switch. A cancelled order goes nowhere.
+function SentCell({ o, onToggle }: { o: Order; onToggle?: () => void }) {
+  if (o.status === "x") return <td className="muted">—</td>;
+  const label = o.sent ? SENT.yes : SENT.no;
+  const cls = chipClass(o.sent ? "accent" : "default");
+  return (
+    <td>
+      {onToggle ? (
+        <button type="button" className={cls} title="ចុចដើម្បីប្តូរ" aria-label={`ការបញ្ជាទិញ ${o.no}: ${label}។ ចុចដើម្បីប្តូរ`} onClick={onToggle}>
+          {label}
+        </button>
+      ) : (
+        <span className={cls}>{label}</span>
+      )}
+    </td>
   );
 }
 
@@ -237,6 +261,7 @@ function pageList(pages: number, page: number): (number | null)[] {
 
 export default function OrdersTable(props: Props) {
   const { readOnly, orders, names, filter, onFilter, query, onQuery, page, onPage } = props;
+  const martCol = readOnly && props.martOf ? 1 : 0;
   const editIcon = readOnly ? null : EDIT_ICON;
   const q = query.trim().toLowerCase();
   const matches = (o: Order) =>
@@ -305,16 +330,18 @@ export default function OrdersTable(props: Props) {
         </div>
       )}
       <div className="table-wrap">
-        <table className="data fixed" style={{ minWidth: readOnly ? 660 : 884 }}>
+        <table className="data fixed" style={{ minWidth: readOnly ? 770 + martCol * 90 : 994 }}>
           <colgroup>
             {!readOnly && <col style={{ width: 44 }} />}
             <col style={{ width: 60 }} />
+            {martCol > 0 && <col style={{ width: 90 }} />}
             <col style={{ width: 108 }} />
             <col style={{ width: 124 }} />
             {!readOnly && <col />}
             <col />
             {!readOnly && <col style={{ width: 100 }} />}
             <col style={{ width: 100 }} />
+            <col style={{ width: 110 }} />
             <col style={{ width: 208 }} />
           </colgroup>
           <thead>
@@ -338,6 +365,7 @@ export default function OrdersTable(props: Props) {
                 </th>
               )}
               <th scope="col">លេខ</th>
+              {martCol > 0 && <th scope="col">Mart</th>}
               <th scope="col">
                 <span className="th-edit">កូដ {editIcon}</span>
               </th>
@@ -356,6 +384,7 @@ export default function OrdersTable(props: Props) {
                 </th>
               )}
               <th scope="col">ស្ថានភាព</th>
+              <th scope="col">ការផ្ញើ</th>
               <th scope="col">
                 <span className="sr-only">សកម្មភាព</span>
               </th>
@@ -366,7 +395,7 @@ export default function OrdersTable(props: Props) {
               rows.map((o) => (readOnly ? <ReadRow key={o.id} o={o} props={props} /> : <Row key={o.id} o={o} props={props} ticked={props.selected.has(o.id)} />))
             ) : (
               <tr className="empty">
-                <td colSpan={readOnly ? 6 : 9}>
+                <td colSpan={readOnly ? 7 + martCol : 10}>
                   {orders.length ? "គ្មានការបញ្ជាទិញត្រូវនឹងតម្រងនេះទេ" : readOnly ? "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ" : "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ · បញ្ចូលការបញ្ជាទិញដំបូងនៅខាងលើ"}
                 </td>
               </tr>
@@ -374,11 +403,11 @@ export default function OrdersTable(props: Props) {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={readOnly ? 3 : 4}>សរុបគ្រប់ទំព័រ · {sum.count} ការបញ្ជាទិញ</td>
+              <td colSpan={readOnly ? 3 + martCol : 4}>សរុបគ្រប់ទំព័រ · {sum.count} ការបញ្ជាទិញ</td>
               {!readOnly && <td className="r">{fmt(sum.cost)}</td>}
               <td className="r">{fmt(sum.sale)}</td>
               {!readOnly && <td className="r t-success">{fmt(sum.profit)}</td>}
-              <td colSpan={2} />
+              <td colSpan={3} />
             </tr>
           </tfoot>
         </table>
