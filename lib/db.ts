@@ -14,6 +14,7 @@ import {
   collection,
   deleteField,
   doc,
+  getDoc,
   getDocs,
   query,
   setDoc,
@@ -132,7 +133,9 @@ export async function claimShop(db: Firestore, email: string, name: string) {
   b.set(doc(db, "members", email), { role: "owner", name, addedBy: email, at: now() } satisfies MemberDoc);
   b.set(doc(db, "meta", "bootstrap"), { owner: email, at: now() });
   await b.commit();
-  await setDoc(doc(db, "settings", "shop"), DEFAULT_SETTINGS, { merge: true });
+  // Settings start at the defaults only in a shop that has none yet; a shop that already holds data keeps its sellers.
+  const settings = doc(db, "settings", "shop");
+  if (!(await getDoc(settings)).exists()) await setDoc(settings, DEFAULT_SETTINGS);
 }
 
 export const setSettings = (db: Firestore, patch: Partial<SettingsDoc>) => setDoc(doc(db, "settings", "shop"), patch, { merge: true });
