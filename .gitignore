@@ -46,5 +46,8 @@ next-env.d.ts
 # Service account keys must never be in the project
 *firebase-adminsdk*.json
 
+# Vercel
+.vercel
+
 # The example settings file is safe to share
 !.env.example
