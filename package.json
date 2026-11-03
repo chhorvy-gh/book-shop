@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "emulators": "firebase emulators:start --only firestore,auth --project demo-salebook",
     "dev:emulators": "cross-env NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true next dev",
-    "deploy:rules": "firebase deploy --only firestore:rules --project bookshop-af0f4"
+    "deploy:rules": "firebase deploy --only firestore --project bookshop-af0f4"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

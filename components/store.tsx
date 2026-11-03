@@ -15,12 +15,14 @@ import { loadSample } from "@/lib/sample";
 import type { Note, Order, PayoutEntry, SaleBookState, Seller, SettlementRow, Week } from "@/lib/types";
 
 export type Role = "owner" | "member";
-export type AccessStatus = "loading" | "signedOut" | "unclaimed" | "noAccess" | "member";
+// locked = signed in, but the database refuses to say who is a member (its security rules are not published yet).
+export type AccessStatus = "loading" | "signedOut" | "unclaimed" | "noAccess" | "locked" | "member";
 export interface Access {
   status: AccessStatus;
   user: User | null;
   email: string; // lower case
   role: Role | null;
+  detail?: string; // why the database could not be used ("locked")
 }
 
 export interface SaleBook {
@@ -141,10 +143,9 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
           const boot = await getDoc(doc(db, "meta", "bootstrap")).catch(() => null);
           set({ status: boot?.exists() ? "noAccess" : "unclaimed", user, email, role: null });
         },
-        (e) => {
-          setError(message(e));
-          setAccess({ status: "noAccess", user, email, role: null });
-        },
+        // Reading your own member document is always allowed by firestore.rules, so a refusal here means the database
+        // itself is not set up: the rules are not published yet, or the app points at a database that is not there.
+        (e) => setAccess({ status: "locked", user, email, role: null, detail: `${(e as { code?: string }).code ?? ""} · ${message(e)}` }),
       );
     });
     return () => {

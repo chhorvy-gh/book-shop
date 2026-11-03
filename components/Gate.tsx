@@ -76,6 +76,27 @@ export default function Gate({ children }: { children: React.ReactNode }) {
         {out}
       </GateCard>
     );
+  } else if (access.status === "locked") {
+    body = (
+      <GateCard>
+        <h1>មូលដ្ឋានទិន្នន័យមិនទាន់រៀបចំរួច</h1>
+        <p>
+          Firebase មិនទាន់អនុញ្ញាតឲ្យកម្មវិធីអាន ឬសរសេរទិន្នន័យទេ · ម្ចាស់គម្រោងត្រូវដាក់ច្បាប់សុវត្ថិភាព (firestore.rules) ក្នុង Firebase console → Firestore → Rules ហើយចុច Publish។
+        </p>
+        <span className="sub">
+          <b>{access.email}</b>
+        </span>
+        {access.detail && (
+          <span className="sub" style={{ fontSize: 11, wordBreak: "break-word" }}>
+            {access.detail}
+          </span>
+        )}
+        <button type="button" className="btn btn-primary" onClick={() => window.location.reload()}>
+          សាកម្តងទៀត
+        </button>
+        {out}
+      </GateCard>
+    );
   } else if (access.status === "noAccess") {
     body = (
       <GateCard>
