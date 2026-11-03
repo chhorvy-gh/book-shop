@@ -5,14 +5,13 @@
 // Put straight under <body> while printing; mockup.css hides everything else on paper.
 import { createPortal } from "react-dom";
 import { fmt, todayText } from "@/lib/format";
-import { STATUS } from "@/lib/orders";
+import { STATUS, saleLines } from "@/lib/orders";
 import type { InvoiceData } from "@/lib/types";
+import { LogoMark } from "../icons";
 
 export default function Invoice({ data }: { data: InvoiceData }) {
-  const lines: [string, string, number][] = data.items.map((it) => [it.name, it.qty === "" ? "" : `${it.qty}${it.unit}`, it.sale]);
-  const listed = data.items.reduce((a, it) => a + it.sale, 0);
+  const lines = saleLines(data);
   if (!lines.length) lines.push([`ទំនិញតាមការបញ្ជាទិញ #${data.no}`, "", data.sale]);
-  else if (listed !== data.sale) lines.push(["កែតម្រូវ", "", data.sale - listed]);
   const meta: [string, React.ReactNode][] = [
     ["លេខកូដ", <b key="c">{data.code || "—"}</b>],
     ["ការបញ្ជាទិញ", `#${data.no}`],
@@ -25,7 +24,9 @@ export default function Invoice({ data }: { data: InvoiceData }) {
     <div className="invoice" aria-hidden="true">
       <header className="inv-head">
         <div className="inv-brand">
-          <span className="inv-mark">ឆ</span>
+          <span className="inv-mark">
+            <LogoMark size={18} />
+          </span>
           <span>
             <b>សៀវភៅលក់</b>
             <small>LL Sales Book</small>

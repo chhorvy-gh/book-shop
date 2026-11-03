@@ -66,11 +66,30 @@
   .trash-actions { width: 100%; justify-content: flex-start; padding-left: 48px; }
 }
 
+/* ---------- Change history (rows are .trash-list rows) ---------- */
+.history-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.history-tools .select { width: auto; height: 36px; max-width: 100%; }
+.history-tools .search { flex: 1 1 220px; }
+.history-list li { align-items: flex-start; }
+.history-main { gap: 4px; }
+.history-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.history-changes { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.history-changes .was { color: var(--muted); text-decoration: line-through; }
+.history-changes b { font-weight: 600; }
+.history-who { flex: 0 1 auto; min-width: 0; max-width: 40%; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.history-who .sub { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-more { display: flex; justify-content: center; }
+@media (max-width: 640px) {
+  .history-list li { flex-wrap: wrap; }
+  .history-who { max-width: none; width: 100%; flex-direction: row; align-items: baseline; gap: 8px; padding-left: 48px; }
+}
+
 /* ---------- Account page ---------- */
 .member-list { margin: 0; padding: 0; list-style: none; }
 .member-list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--sep); }
 .member-list li:first-child { border-top: 0; }
 .member-list .stack { flex: 1 1 auto; }
+.member-list .member-seller { width: auto; max-width: 200px; height: 34px; font-size: 13px; }
 
 /* ---------- Date boxes and their calendar (components/DateField.tsx) ---------- */
 .date-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; cursor: pointer; }
@@ -125,3 +144,28 @@
 }
 .cal-foot .field-link { font-size: 13px; }
 .cal-foot .field-link:disabled { color: var(--muted); cursor: not-allowed; text-decoration: none; }
+
+/* ---------- Order view (the sales table's «មើល») ---------- */
+.view-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.view-title { display: flex; align-items: baseline; gap: 12px; }
+.view-title .muted { font-weight: 500; }
+.view-items-wrap { max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+.view-items { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+.view-items th, .view-items td { padding: 8px 6px; text-align: left; vertical-align: top; }
+.view-items thead th { font-size: 12px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--sep-2); }
+.view-items tbody td { border-bottom: 1px solid var(--sep); }
+.view-items th:first-child, .view-items td:first-child { width: 2.5em; color: var(--muted); }
+.view-items .r { text-align: right; white-space: nowrap; }
+.view-items tfoot td { padding-top: 10px; border-top: 2px solid var(--fg); border-bottom: 0; font-size: 16px; font-weight: 700; }
+.view-items .empty td { padding: 20px 6px; text-align: center; color: var(--muted); }
+
+/* ---------- Username sign-in (viewers) and the account page's add form ---------- */
+.gate-or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.gate-or::before, .gate-or::after { content: ""; flex: 1; border-top: 1px solid var(--sep); }
+.gate-form { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.member-form { display: flex; flex-direction: column; gap: 14px; }
+.member-form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.member-form-row > :first-child { min-width: 52px; font-size: 13px; font-weight: 500; }
+.member-form-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: start; }
+.member-form-fields .member-email { grid-column: span 2; }
+@media (max-width: 520px) { .member-form-fields .member-email { grid-column: auto; } }

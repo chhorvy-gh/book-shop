@@ -1,47 +1,97 @@
 "use client";
 
 // Who is signed in, signing out, and (for owners) who may use the shop. Not in the mockup: the app's own page,
-// drawn with the mockup's cards, fields and lists.
+// drawn with the mockup's cards, fields and lists. A viewer can be given a Google account, or a username and password
+// made here (lib/usernames.ts).
 import { useState } from "react";
-import { setMember, removeMember } from "@/lib/db";
-import { firebase } from "@/lib/firebase";
+import { createLogin } from "@/lib/firebase";
 import { initialOf } from "@/lib/format";
+import { USERNAME, loginError, shownName, usernameEmail, usernameOf } from "@/lib/usernames";
 import { Icon } from "../icons";
-import { useMembers, useSaleBook } from "../store";
+import { useMembers, useSaleBook, type Role } from "../store";
 import { Tabs } from "../ui";
 
-const ROLE = { owner: "ម្ចាស់ហាង", member: "អ្នកប្រើ" } as const;
+const ROLE: Record<Role, string> = { owner: "ម្ចាស់ហាង", member: "អ្នកប្រើ", viewer: "អ្នកមើល" };
+// What each role may do, beside the role picker.
+const ROLE_HELP: Record<Role, string> = {
+  member: "បញ្ចូល និងកែទិន្នន័យបានគ្រប់ទំព័រ",
+  owner: "ដូចអ្នកប្រើ ហើយបន្ថែម ឬដកអ្នកប្រើបាន",
+  viewer: "មើលតែតារាងលក់ប៉ុណ្ណោះ · មិនអាចបញ្ចូល កែ ឬលុប",
+};
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+type Login = "google" | "username";
 
 export default function AccountPage() {
-  const { access, signOut } = useSaleBook();
+  const { state, access, signOut, addMember, removeMember, setViewerSeller } = useSaleBook();
+  // A seller's name with their code, for a viewer limited to that seller ("បងណា (ហេង)").
+  const sellerLabel = (code: string) => {
+    const s = state.sellers.find((x) => x.code === code);
+    return s ? `${s.name} (${s.code})` : code;
+  };
   const owner = access.role === "owner";
   const members = useMembers(owner);
+  const [role, setRole] = useState<Role>("member");
+  // How a new viewer signs in: their Google account, or a username and password made here.
+  const [login, setLogin] = useState<Login>("google");
+  const byUsername = role === "viewer" && login === "username";
+  // A viewer may see every seller's orders, or one seller's only (their code; "" = every seller).
+  const [seller, setSeller] = useState("");
+  const onlySeller = role === "viewer" ? seller : "";
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"member" | "owner">("member");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    const v = email.trim().toLowerCase();
-    if (!EMAIL.test(v)) return setError("បញ្ចូលអ៊ីមែល Google ឲ្យត្រឹមត្រូវ");
-    if (members?.some((m) => m.email === v)) return setError("អ៊ីមែលនេះមានសិទ្ធិរួចហើយ");
+    if (busy) return;
+    const u = username.trim().toLowerCase();
+    let target: string;
+    if (byUsername) {
+      if (!USERNAME.test(u)) return setError("ឈ្មោះអ្នកប្រើ៖ អក្សរឡាតាំង ឬលេខ 3–20 តួ (អាចមាន . _ -)");
+      if (password.length < 6) return setError("ពាក្យសម្ងាត់ត្រូវមានយ៉ាងហោចណាស់ 6 តួ");
+      target = usernameEmail(u);
+    } else {
+      target = email.trim().toLowerCase();
+      if (!EMAIL.test(target) || usernameOf(target)) return setError("បញ្ចូលអ៊ីមែល Google ឲ្យត្រឹមត្រូវ");
+    }
+    if (members?.some((m) => m.email === target)) return setError(byUsername ? "ឈ្មោះអ្នកប្រើនេះមានសិទ្ធិរួចហើយ" : "អ៊ីមែលនេះមានសិទ្ធិរួចហើយ");
     setError("");
+    setBusy(true);
     try {
-      await setMember(firebase().db, v, role, access.email);
+      // The login first: if the username is someone else's, no access is given.
+      if (byUsername) await createLogin(target, password);
+      await addMember(target, role, onlySeller || undefined);
       setEmail("");
-      setNote(`បានបន្ថែម ${v} · ${ROLE[role]} · ពេលចូលដោយ Google អាចប្រើបានភ្លាម។`);
+      setUsername("");
+      setPassword("");
+      setShowPassword(false);
+      const scope = onlySeller ? ` · មើលតែ ${sellerLabel(onlySeller)}` : "";
+      setNote(
+        byUsername
+          ? `បានបង្កើតគណនី «${u}» · ${ROLE.viewer}${scope} · ចូលនៅទំព័រចូល ដោយឈ្មោះ «${u}» និងពាក្យសម្ងាត់ដែលបានកំណត់។`
+          : `បានបន្ថែម ${target} · ${ROLE[role]}${scope} · ពេលចូលដោយ Google អាចប្រើបានភ្លាម។`,
+      );
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(loginError(err));
+    } finally {
+      setBusy(false);
     }
   }
+
+  const changed = () => {
+    setError("");
+    setNote("");
+  };
 
   return (
     <>
       <header className="page-head">
         <div className="stack">
-          <span className="eyebrow">{access.email}</span>
+          <span className="eyebrow">{shownName(access.email)}</span>
           <h1>គណនី</h1>
         </div>
         <div className="actions">
@@ -56,7 +106,7 @@ export default function AccountPage() {
         <div className="card-head">
           <div className="stack">
             <h2>អ្នកដែលអាចប្រើសៀវភៅលក់</h2>
-            <span className="sub">ចូលដោយគណនី Google · តែអ៊ីមែលក្នុងបញ្ជីនេះប៉ុណ្ណោះ ដែលមើល និងកែទិន្នន័យបាន</span>
+            <span className="sub">ចូលដោយគណនី Google ឬឈ្មោះអ្នកប្រើ (សម្រាប់អ្នកមើល) · តែអ្នកក្នុងបញ្ជីនេះប៉ុណ្ណោះ ដែលប្រើបាន</span>
           </div>
           <span className="chip chip-accent">{access.role ? ROLE[access.role] : ""}</span>
         </div>
@@ -67,41 +117,136 @@ export default function AccountPage() {
           </p>
         ) : (
           <>
-            <form noValidate onSubmit={add} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, alignItems: "end" }}>
-              <label className="field" htmlFor="member-email" style={{ gridColumn: "span 2" }}>
-                អ៊ីមែល Google
-                <input
-                  className="input"
-                  id="member-email"
-                  type="email"
-                  autoComplete="off"
-                  placeholder="ឧ. name@gmail.com"
-                  value={email}
-                  aria-invalid={error ? true : undefined}
-                  aria-describedby="member-error"
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    setError("");
-                  }}
-                />
-              </label>
-              <div className="field">
+            <form noValidate onSubmit={add} className="member-form">
+              <div className="member-form-row">
                 <span id="member-role-label">សិទ្ធិ</span>
                 <Tabs
                   labelledBy="member-role-label"
                   value={role}
-                  onPick={setRole}
+                  onPick={(r) => {
+                    setRole(r);
+                    changed();
+                  }}
                   items={[
                     { key: "member", label: ROLE.member },
+                    { key: "viewer", label: ROLE.viewer },
                     { key: "owner", label: ROLE.owner },
                   ]}
-                  style={{ alignSelf: "flex-start" }}
                 />
+                <span className="sub">{ROLE_HELP[role]}</span>
               </div>
-              <button type="submit" className="btn btn-primary">
-                <Icon name="plus" size={16} />
-                បន្ថែម
-              </button>
+              {role === "viewer" && (
+                <div className="member-form-row">
+                  <span id="member-login-label">ចូលដោយ</span>
+                  <Tabs<Login>
+                    labelledBy="member-login-label"
+                    value={login}
+                    onPick={(l) => {
+                      setLogin(l);
+                      changed();
+                    }}
+                    items={[
+                      { key: "google", label: "Gmail" },
+                      { key: "username", label: "ឈ្មោះ និងពាក្យសម្ងាត់" },
+                    ]}
+                  />
+                </div>
+              )}
+              {role === "viewer" && (
+                <div className="member-form-row">
+                  <label htmlFor="member-seller">មើលទិន្នន័យ</label>
+                  <select
+                    className="select"
+                    id="member-seller"
+                    style={{ width: "auto", minWidth: 200 }}
+                    value={seller}
+                    onChange={(e) => {
+                      setSeller(e.target.value);
+                      changed();
+                    }}
+                  >
+                    <option value="">អ្នកលក់ទាំងអស់</option>
+                    {state.sellers.map((s) => (
+                      <option key={s.code} value={s.code}>
+                        តែ {s.name} ({s.code})
+                      </option>
+                    ))}
+                  </select>
+                  <span className="sub">{seller ? `ឃើញតែការបញ្ជាទិញកូដ ${seller}1, ${seller}2 …` : "ឃើញការបញ្ជាទិញរបស់អ្នកលក់គ្រប់គ្នា"}</span>
+                </div>
+              )}
+              <div className="member-form-fields">
+                {byUsername ? (
+                  <>
+                    <label className="field" htmlFor="member-username">
+                      ឈ្មោះអ្នកប្រើ
+                      <input
+                        className="input"
+                        id="member-username"
+                        type="text"
+                        autoComplete="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        maxLength={20}
+                        placeholder="ឧ. dara"
+                        value={username}
+                        aria-invalid={error ? true : undefined}
+                        aria-describedby="member-error"
+                        onChange={(e) => {
+                          setUsername(e.target.value);
+                          changed();
+                        }}
+                      />
+                    </label>
+                    <div className="field">
+                      <span className="field-head">
+                        <label htmlFor="member-password">ពាក្យសម្ងាត់</label>
+                        <button type="button" className="field-link" onClick={() => setShowPassword((v) => !v)}>
+                          {showPassword ? "លាក់" : "បង្ហាញ"}
+                        </button>
+                      </span>
+                      <input
+                        className="input"
+                        id="member-password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="យ៉ាងហោចណាស់ 6 តួ"
+                        value={password}
+                        aria-describedby="member-error"
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          changed();
+                        }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <label className="field member-email" htmlFor="member-email">
+                    អ៊ីមែល Google
+                    <input
+                      className="input"
+                      id="member-email"
+                      type="email"
+                      autoComplete="off"
+                      placeholder="ឧ. name@gmail.com"
+                      value={email}
+                      aria-invalid={error ? true : undefined}
+                      aria-describedby="member-error"
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        changed();
+                      }}
+                    />
+                  </label>
+                )}
+                <div className="field">
+                  <span aria-hidden="true">&nbsp;</span>
+                  <button type="submit" className="btn btn-primary" disabled={busy}>
+                    <Icon name="plus" size={16} />
+                    {byUsername ? "បង្កើតគណនី" : "បន្ថែម"}
+                  </button>
+                </div>
+              </div>
             </form>
             {error && (
               <span className="field-error" id="member-error" role="alert" style={{ marginTop: -8 }}>
@@ -114,38 +259,75 @@ export default function AccountPage() {
               </p>
             )}
             <ul className="member-list">
-              {(members ?? []).map((m) => (
-                <li key={m.email}>
-                  <span className="avatar" aria-hidden="true">
-                    {initialOf(m.data.name || m.email).toUpperCase()}
-                  </span>
-                  <span className="stack">
-                    <span className="strong">{m.email}</span>
-                    <span className="sub">
-                      {ROLE[m.data.role]}
-                      {m.email === access.email ? " · អ្នក" : ""}
+              {(members ?? []).map((m) => {
+                const name = usernameOf(m.email);
+                return (
+                  <li key={m.email}>
+                    <span className="avatar" aria-hidden="true">
+                      {initialOf(name ?? (m.data.name || m.email)).toUpperCase()}
                     </span>
-                  </span>
-                  {m.email !== access.email && (
-                    <button
-                      type="button"
-                      className="row-btn is-danger"
-                      aria-label={`ដក ${m.email}`}
-                      onClick={async () => {
-                        try {
-                          await removeMember(firebase().db, m.email);
-                          setNote(`បានដក ${m.email} · គាត់មិនអាចប្រើសៀវភៅលក់ទៀតទេ។`);
-                        } catch (err) {
-                          setError(err instanceof Error ? err.message : String(err));
-                        }
-                      }}
-                    >
-                      <Icon name="trash" size={14} />
-                      ដក
-                    </button>
-                  )}
-                </li>
-              ))}
+                    <span className="stack">
+                      <span className="strong">{name ?? m.email}</span>
+                      <span className="sub">
+                        {ROLE[m.data.role]}
+                        {m.data.role === "viewer" ? (m.data.seller ? ` · មើលតែ ${sellerLabel(m.data.seller)}` : " · មើលអ្នកលក់ទាំងអស់") : ""}
+                        {name ? " · ចូលដោយឈ្មោះ និងពាក្យសម្ងាត់" : ""}
+                        {m.email === access.email ? " · អ្នក" : ""}
+                      </span>
+                    </span>
+                    {m.data.role === "viewer" && (
+                      // Which seller this viewer sees, changed in place; it applies at once, even while they are signed in.
+                      <select
+                        className="select member-seller"
+                        aria-label={`មើលទិន្នន័យ · ${name ?? m.email}`}
+                        title="មើលទិន្នន័យ"
+                        value={m.data.seller ?? ""}
+                        onChange={async (e) => {
+                          const next = e.target.value;
+                          try {
+                            await setViewerSeller(m.email, next, m.data.seller ?? "");
+                            setError("");
+                            setNote(`${name ?? m.email} · ${next ? `មើលតែ ${sellerLabel(next)}` : "មើលអ្នកលក់ទាំងអស់"}។`);
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : String(err));
+                          }
+                        }}
+                      >
+                        <option value="">អ្នកលក់ទាំងអស់</option>
+                        {m.data.seller && !state.sellers.some((s) => s.code === m.data.seller) && <option value={m.data.seller}>តែ {m.data.seller}</option>}
+                        {state.sellers.map((s) => (
+                          <option key={s.code} value={s.code}>
+                            តែ {s.name} ({s.code})
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {m.email !== access.email && (
+                      <button
+                        type="button"
+                        className="row-btn is-danger"
+                        aria-label={`ដក ${name ?? m.email}`}
+                        onClick={async () => {
+                          try {
+                            await removeMember(m.email, m.data.role);
+                            setError("");
+                            setNote(
+                              name
+                                ? `បានដក «${name}» · គាត់មិនអាចប្រើសៀវភៅលក់ទៀតទេ · ឈ្មោះនេះនៅតែជាប់ ហើយបន្ថែមវិញបាន ដោយពាក្យសម្ងាត់ដដែល។`
+                                : `បានដក ${m.email} · គាត់មិនអាចប្រើសៀវភៅលក់ទៀតទេ។`,
+                            );
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : String(err));
+                          }
+                        }}
+                      >
+                        <Icon name="trash" size={14} />
+                        ដក
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </>
         )}

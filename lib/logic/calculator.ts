@@ -1,6 +1,7 @@
 // The quick calculator's lists: ① with cost prices, ② with sale prices, one item per line, pasted from Telegram.
 // Pure functions, so the reading and matching can be tested without the page.
 import { fmt, latinDigits, prefixOf } from "@/lib/format";
+import type { Item } from "@/lib/types";
 
 // A line with no number at all: shown in the table, never added up.
 export interface TextLine {
@@ -200,6 +201,10 @@ export function saleOf(l: ItemLine, p: Pricing): number | undefined {
 }
 
 export const itemsOf = (rows: Line[]) => rows.filter((l): l is ItemLine => l.kind === "item");
+
+// The lines as an order's item list, for the order made from the totals; a missing price counts 0, as in the totals.
+export const orderItems = (view: CalcView, p: Pricing): Item[] =>
+  itemsOf(view.rows).map((l) => ({ name: l.name, qty: l.qty ?? "", unit: l.unit, cost: l.amount ?? 0, sale: saleOf(l, p) ?? 0 }));
 
 export function totals(rows: Line[], p: Pricing): CalcTotals {
   const items = itemsOf(rows);

@@ -12,6 +12,7 @@ const PATHS = {
   next: '<path d="M9 6l6 6-6 6"/>',
   close: '<path d="M7 7l10 10M17 7L7 17"/>',
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M10 11v6M14 11v6"/>',
+  history: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.7"/><path d="M4 4.5v4.2h4.2"/><path d="M12 8v4.2l2.8 1.8"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
   up: '<path d="M6 15l6-6 6 6"/>',
   alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16h.01"/>',
@@ -51,5 +52,15 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       aria-hidden="true"
       dangerouslySetInnerHTML={{ __html: PATHS[name] }}
     />
+  );
+}
+
+// The book's mark: the two L's of LL Sales Book, the second taller like a rising bar. Takes the text colour.
+export function LogoMark({ size = 24 }: { size?: number }) {
+  return (
+    <svg className="logo-mark" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M4.5 8h3v9h4v3h-7z" opacity="0.72" />
+      <path d="M12.5 4h3v13h4v3h-7z" />
+    </svg>
   );
 }

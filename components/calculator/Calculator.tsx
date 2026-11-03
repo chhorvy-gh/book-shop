@@ -5,9 +5,10 @@
 // The reading and matching of the lists is in lib/logic/calculator.ts.
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { handItems } from "@/lib/calcItems";
 import { copyText } from "@/lib/clipboard";
 import { fmt, latinDigits, parseMoney, usd } from "@/lib/format";
-import { combine, listText, markupOf, parse, qtyText, saleOf, totals, writtenCheck, type ItemLine, type Pricing } from "@/lib/logic/calculator";
+import { combine, listText, markupOf, orderItems, parse, qtyText, saleOf, totals, writtenCheck, type ItemLine, type Pricing } from "@/lib/logic/calculator";
 import { Icon } from "../icons";
 import { useSaleBook } from "../store";
 
@@ -214,7 +215,6 @@ export default function Calculator() {
                 rows={10}
                 spellCheck={false}
                 aria-describedby="tips"
-                placeholder={EXAMPLE_COST}
                 value={draft.text}
                 onChange={(e) => update({ text: e.target.value })}
               />
@@ -227,7 +227,6 @@ export default function Calculator() {
                 rows={10}
                 spellCheck={false}
                 aria-describedby="tips"
-                placeholder={EXAMPLE_SALE}
                 value={draft.saleText}
                 onChange={(e) => update({ saleText: e.target.value })}
               />
@@ -499,8 +498,20 @@ export default function Calculator() {
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {/* The link changes with every keystroke; no point fetching each one ahead. */}
-            <Link className="btn btn-primary" id="to-sales" href={salesHref} aria-disabled={!has} prefetch={false}>
+            {/* The link changes with every keystroke; no point fetching each one ahead. The totals travel in the link and
+                the item list in session storage, so the lists are cleared as it is followed (not when it is opened in a
+                new tab), ready for the next order. */}
+            <Link
+              className="btn btn-primary"
+              id="to-sales"
+              href={salesHref}
+              aria-disabled={!has}
+              prefetch={false}
+              onClick={(e) => {
+                if (has) handItems(t.cost, orderItems(view, pricing));
+                if (has && e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) update({ text: "", saleText: "", sales: {} });
+              }}
+            >
               ដាក់ចូលតារាងលក់
               <Icon name="arrow" size={16} />
             </Link>

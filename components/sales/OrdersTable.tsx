@@ -2,7 +2,8 @@
 
 // One mart's orders for the week (the mockup's #table-card): filter tabs and search, the table with cells that edit in
 // place, totals over every matching row, the pager and the hint line. A tick box starts each row; while rows are ticked a
-// bar above the table changes the status of all of them, or deletes them, at once.
+// bar above the table changes the status of all of them, or deletes them, at once. For a viewer (readOnly) the columns
+// are plain text, with no tick boxes and no cost price or profit, and each row only opens «មើល» or prints.
 import { useState } from "react";
 import { fmt, latinDigits, prefixOf } from "@/lib/format";
 import { STATUS, findCode, totals } from "@/lib/orders";
@@ -16,6 +17,7 @@ export const PAGE_SIZE = 30;
 export type Originals = Map<string, Pick<Order, "code" | "cost" | "sale">>;
 
 interface Props {
+  readOnly?: boolean;
   orders: Order[];
   marts: Mart[]; // every mart of the week, for the duplicate-code check
   names: Map<string, string>; // seller code → name
@@ -29,6 +31,7 @@ interface Props {
   newId: string | null;
   onChange: (o: Order, patch: Partial<Pick<Order, "code" | "cost" | "sale">>) => void;
   onToggleStatus: (o: Order) => void;
+  onView: (o: Order) => void;
   onEdit: (o: Order) => void;
   onPrint: (o: Order) => void;
   onDelete: (o: Order) => void;
@@ -170,6 +173,10 @@ function Row({ o, props, ticked }: { o: Order; props: Props; ticked: boolean }) 
       </td>
       <td>
         <div className="row-actions tight">
+          <button type="button" className="row-btn" aria-label={`មើលការបញ្ជាទិញ ${o.no}`} onClick={() => props.onView(o)}>
+            <Icon name="eye" size={14} />
+            មើល
+          </button>
           <button type="button" className="row-btn" aria-label={`កែការបញ្ជាទិញ ${o.no}`} onClick={() => props.onEdit(o)}>
             <Icon name="edit" size={14} />
             កែ
@@ -179,6 +186,36 @@ function Row({ o, props, ticked }: { o: Order; props: Props; ticked: boolean }) 
           </button>
           <button type="button" className="row-btn is-danger" aria-label={`លុបការបញ្ជាទិញ ${o.no}`} title="លុប" onClick={() => props.onDelete(o)}>
             <Icon name="trash" size={14} />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// One order for a viewer: the columns as text, without the cost price or profit, and only «មើល» and print.
+function ReadRow({ o, props }: { o: Order; props: Props }) {
+  const cancelled = o.status === "x";
+  const { label, tone } = STATUS[o.status];
+  return (
+    <tr id={`order-${o.id}`} className={cancelled ? "is-cancelled" : undefined}>
+      <td className="muted">{o.no}</td>
+      <td className="strong">{o.code || "—"}</td>
+      <td>
+        <SellerChip name={props.names.get(prefixOf(o.code))} cancelled={cancelled} />
+      </td>
+      <td className="r">{fmt(o.sale)}</td>
+      <td>
+        <span className={chipClass(tone)}>{label}</span>
+      </td>
+      <td>
+        <div className="row-actions tight">
+          <button type="button" className="row-btn" aria-label={`មើលការបញ្ជាទិញ ${o.no}`} onClick={() => props.onView(o)}>
+            <Icon name="eye" size={14} />
+            មើល
+          </button>
+          <button type="button" className="row-btn" aria-label={`បោះពុម្ពវិក្កយបត្រ ការបញ្ជាទិញ ${o.no}`} title="បោះពុម្ពវិក្កយបត្រ" onClick={() => props.onPrint(o)}>
+            <Icon name="print" size={14} />
           </button>
         </div>
       </td>
@@ -199,7 +236,8 @@ function pageList(pages: number, page: number): (number | null)[] {
 }
 
 export default function OrdersTable(props: Props) {
-  const { orders, names, filter, onFilter, query, onQuery, page, onPage } = props;
+  const { readOnly, orders, names, filter, onFilter, query, onQuery, page, onPage } = props;
+  const editIcon = readOnly ? null : EDIT_ICON;
   const q = query.trim().toLowerCase();
   const matches = (o: Order) =>
     (filter === "all" || (filter === "paid" ? o.status === "p" : o.status === "u")) &&
@@ -267,50 +305,56 @@ export default function OrdersTable(props: Props) {
         </div>
       )}
       <div className="table-wrap">
-        <table className="data fixed" style={{ minWidth: 824 }}>
+        <table className="data fixed" style={{ minWidth: readOnly ? 660 : 884 }}>
           <colgroup>
-            <col style={{ width: 44 }} />
+            {!readOnly && <col style={{ width: 44 }} />}
             <col style={{ width: 60 }} />
             <col style={{ width: 108 }} />
             <col style={{ width: 124 }} />
+            {!readOnly && <col />}
             <col />
-            <col />
+            {!readOnly && <col style={{ width: 100 }} />}
             <col style={{ width: 100 }} />
-            <col style={{ width: 100 }} />
-            <col style={{ width: 148 }} />
+            <col style={{ width: 208 }} />
           </colgroup>
           <thead>
             <tr>
-              <th scope="col" className="cell-check">
-                {/* Ticks every row on this page; half-ticked when only some are. */}
-                <input
-                  type="checkbox"
-                  className="row-check"
-                  id="sel-page"
-                  checked={rows.length > 0 && tickedHere === rows.length}
-                  disabled={!rows.length}
-                  ref={(el) => {
-                    if (el) el.indeterminate = tickedHere > 0 && tickedHere < rows.length;
-                  }}
-                  onChange={(e) => props.onTick(rows.map((o) => o.id), e.target.checked)}
-                  aria-label="ជ្រើសការបញ្ជាទិញទាំងអស់ក្នុងទំព័រនេះ"
-                  title="ជ្រើសទាំងអស់ក្នុងទំព័រនេះ"
-                />
-              </th>
+              {!readOnly && (
+                <th scope="col" className="cell-check">
+                  {/* Ticks every row on this page; half-ticked when only some are. */}
+                  <input
+                    type="checkbox"
+                    className="row-check"
+                    id="sel-page"
+                    checked={rows.length > 0 && tickedHere === rows.length}
+                    disabled={!rows.length}
+                    ref={(el) => {
+                      if (el) el.indeterminate = tickedHere > 0 && tickedHere < rows.length;
+                    }}
+                    onChange={(e) => props.onTick(rows.map((o) => o.id), e.target.checked)}
+                    aria-label="ជ្រើសការបញ្ជាទិញទាំងអស់ក្នុងទំព័រនេះ"
+                    title="ជ្រើសទាំងអស់ក្នុងទំព័រនេះ"
+                  />
+                </th>
+              )}
               <th scope="col">លេខ</th>
               <th scope="col">
-                <span className="th-edit">កូដ {EDIT_ICON}</span>
+                <span className="th-edit">កូដ {editIcon}</span>
               </th>
               <th scope="col">អ្នកលក់</th>
+              {!readOnly && (
+                <th scope="col" className="r">
+                  <span className="th-edit">លុយដើម {EDIT_ICON}</span>
+                </th>
+              )}
               <th scope="col" className="r">
-                <span className="th-edit">លុយដើម {EDIT_ICON}</span>
+                <span className="th-edit">លុយលក់ {editIcon}</span>
               </th>
-              <th scope="col" className="r">
-                <span className="th-edit">លុយលក់ {EDIT_ICON}</span>
-              </th>
-              <th scope="col" className="r">
-                ចំណេញ
-              </th>
+              {!readOnly && (
+                <th scope="col" className="r">
+                  ចំណេញ
+                </th>
+              )}
               <th scope="col">ស្ថានភាព</th>
               <th scope="col">
                 <span className="sr-only">សកម្មភាព</span>
@@ -319,19 +363,21 @@ export default function OrdersTable(props: Props) {
           </thead>
           <tbody id="rows">
             {rows.length ? (
-              rows.map((o) => <Row key={o.id} o={o} props={props} ticked={props.selected.has(o.id)} />)
+              rows.map((o) => (readOnly ? <ReadRow key={o.id} o={o} props={props} /> : <Row key={o.id} o={o} props={props} ticked={props.selected.has(o.id)} />))
             ) : (
               <tr className="empty">
-                <td colSpan={9}>{orders.length ? "គ្មានការបញ្ជាទិញត្រូវនឹងតម្រងនេះទេ" : "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ · បញ្ចូលការបញ្ជាទិញដំបូងនៅខាងលើ"}</td>
+                <td colSpan={readOnly ? 6 : 9}>
+                  {orders.length ? "គ្មានការបញ្ជាទិញត្រូវនឹងតម្រងនេះទេ" : readOnly ? "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ" : "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ · បញ្ចូលការបញ្ជាទិញដំបូងនៅខាងលើ"}
+                </td>
               </tr>
             )}
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={4}>សរុបគ្រប់ទំព័រ · {sum.count} ការបញ្ជាទិញ</td>
-              <td className="r">{fmt(sum.cost)}</td>
+              <td colSpan={readOnly ? 3 : 4}>សរុបគ្រប់ទំព័រ · {sum.count} ការបញ្ជាទិញ</td>
+              {!readOnly && <td className="r">{fmt(sum.cost)}</td>}
               <td className="r">{fmt(sum.sale)}</td>
-              <td className="r t-success">{fmt(sum.profit)}</td>
+              {!readOnly && <td className="r t-success">{fmt(sum.profit)}</td>}
               <td colSpan={2} />
             </tr>
           </tfoot>
@@ -361,7 +407,11 @@ export default function OrdersTable(props: Props) {
           </button>
         </div>
       </nav>
-      <p className="table-note">ចុចលើកូដ លុយដើម ឬ លុយលក់ ដើម្បីកែ · Enter ទៅជួរបន្ទាប់ · Esc បោះបង់ · ចុចលើស្ថានភាព ដើម្បីប្តូរ។</p>
+      <p className="table-note">
+        {readOnly
+          ? "ចុច «មើល» ដើម្បីមើលបញ្ជីទំនិញនៃការបញ្ជាទិញ។"
+          : "ចុចលើកូដ លុយដើម ឬ លុយលក់ ដើម្បីកែ · Enter ទៅជួរបន្ទាប់ · Esc បោះបង់ · ចុចលើស្ថានភាព ដើម្បីប្តូរ។"}
+      </p>
     </section>
   );
 }

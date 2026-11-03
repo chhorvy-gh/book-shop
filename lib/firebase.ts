@@ -1,8 +1,19 @@
 // The Firebase app, Auth and Firestore, made once in the browser.
 // Settings come from .env.local (see .env.example). With NEXT_PUBLIC_USE_FIREBASE_EMULATORS=true, or no project set,
 // everything talks to the local emulators (npm run emulators) instead of the real project.
-import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { connectAuthEmulator, getAuth, GoogleAuthProvider, signInWithCredential, type Auth } from "firebase/auth";
+import { deleteApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import {
+  connectAuthEmulator,
+  createUserWithEmailAndPassword,
+  getAuth,
+  GoogleAuthProvider,
+  inMemoryPersistence,
+  initializeAuth,
+  signInWithCredential,
+  signInWithEmailAndPassword,
+  signOut,
+  type Auth,
+} from "firebase/auth";
 import {
   connectFirestoreEmulator,
   initializeFirestore,
@@ -29,6 +40,26 @@ const config = USE_EMULATORS
 const DATABASE_ID = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID || "(default)";
 
 let made: { app: FirebaseApp; auth: Auth; db: Firestore } | null = null;
+
+// Makes a password login for someone else (a viewer's username) without signing the owner out: the account is made on
+// a second, throwaway Firebase app that keeps nothing on the device. A login that already exists with this very
+// password is fine (the person was removed and is added again); with another password it is someone else's.
+export async function createLogin(email: string, password: string) {
+  const extra = initializeApp(config, `create-login-${Date.now()}`);
+  const auth = initializeAuth(extra, { persistence: inMemoryPersistence });
+  if (USE_EMULATORS) connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+  try {
+    await createUserWithEmailAndPassword(auth, email, password);
+  } catch (e) {
+    if ((e as { code?: string }).code !== "auth/email-already-in-use") throw e;
+    await signInWithEmailAndPassword(auth, email, password).catch(() => {
+      throw e;
+    });
+  } finally {
+    await signOut(auth).catch(() => {});
+    await deleteApp(extra);
+  }
+}
 
 // Browser only: call from effects and event handlers, never while rendering on the server.
 export function firebase() {

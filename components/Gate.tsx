@@ -2,10 +2,80 @@
 
 // Before any page: sign in with Google, then be a member of the shop. The first person in an empty shop claims it.
 // Also shows a failed save at the bottom of the screen, on every page.
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Brand } from "./Shell";
 import { Icon } from "./icons";
-import { useSaleBook } from "./store";
+import { VIEWER_HOME, useSaleBook } from "./store";
 import { Loading } from "./ui";
+
+// A viewer who opens any other page (a link, a bookmark, the overview after signing in) goes to the sales sheet.
+function ToViewerHome() {
+  const router = useRouter();
+  useEffect(() => router.replace(VIEWER_HOME), [router]);
+  return <Loading />;
+}
+
+// The other way in, for viewers given a username and password on the account page.
+function UsernameSignIn() {
+  const { signInWithUsername } = useSaleBook();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="gate-form"
+      noValidate
+      aria-label="ចូលដោយឈ្មោះអ្នកប្រើ"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (busy) return;
+        if (!username.trim() || !password) return setError("បញ្ចូលឈ្មោះអ្នកប្រើ និងពាក្យសម្ងាត់");
+        setBusy(true);
+        const failed = await signInWithUsername(username, password);
+        // Signed in: the gate moves on by itself. Otherwise say why.
+        setBusy(false);
+        setError(failed);
+      }}
+    >
+      <input
+        className="input"
+        type="text"
+        autoComplete="username"
+        autoCapitalize="none"
+        spellCheck={false}
+        placeholder="ឈ្មោះអ្នកប្រើ"
+        aria-label="ឈ្មោះអ្នកប្រើ"
+        value={username}
+        onChange={(e) => {
+          setUsername(e.target.value);
+          setError("");
+        }}
+      />
+      <input
+        className="input"
+        type="password"
+        autoComplete="current-password"
+        placeholder="ពាក្យសម្ងាត់"
+        aria-label="ពាក្យសម្ងាត់"
+        value={password}
+        onChange={(e) => {
+          setPassword(e.target.value);
+          setError("");
+        }}
+      />
+      {error && (
+        <span className="field-error" role="alert">
+          {error}
+        </span>
+      )}
+      <button type="submit" className="btn btn-primary" disabled={busy}>
+        ចូល
+      </button>
+    </form>
+  );
+}
 
 function GateCard({ children }: { children: React.ReactNode }) {
   return (
@@ -39,6 +109,7 @@ function SaveError() {
 
 export default function Gate({ children }: { children: React.ReactNode }) {
   const { access, ready, signIn, signOut, claimShop } = useSaleBook();
+  const pathname = usePathname();
   const out = (
     <button type="button" className="btn btn-default" onClick={() => void signOut()}>
       <Icon name="logout" size={16} />
@@ -58,6 +129,10 @@ export default function Gate({ children }: { children: React.ReactNode }) {
           <Icon name="google" />
           ចូលដោយ Google
         </button>
+        <div className="gate-or">
+          <span>ឬ ចូលដោយឈ្មោះអ្នកប្រើ</span>
+        </div>
+        <UsernameSignIn />
       </GateCard>
     );
   } else if (access.status === "unclaimed") {
@@ -108,6 +183,8 @@ export default function Gate({ children }: { children: React.ReactNode }) {
         {out}
       </GateCard>
     );
+  } else if (access.role === "viewer" && pathname !== VIEWER_HOME) {
+    body = <ToViewerHome />;
   } else {
     body = children;
   }

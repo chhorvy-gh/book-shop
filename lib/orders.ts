@@ -130,3 +130,12 @@ export function listText(order: Pick<Order, "no" | "items">, field: "cost" | "sa
 }
 
 export const sumItems = (items: Item[], field: "cost" | "sale") => items.reduce((a, it) => a + it[field], 0);
+
+// The ② sale list as the customer sees it (invoice and order view): [name, quantity, amount] per item, and one
+// adjustment line when the items do not add up to the order's sale, so the lines always add up. Empty with no items.
+export function saleLines(order: Pick<Order, "sale" | "items">): [string, string, number][] {
+  const lines: [string, string, number][] = order.items.map((it) => [it.name, it.qty === "" ? "" : `${it.qty}${it.unit}`, it.sale]);
+  const listed = sumItems(order.items, "sale");
+  if (lines.length && listed !== order.sale) lines.push(["កែតម្រូវ", "", order.sale - listed]);
+  return lines;
+}

@@ -2,12 +2,24 @@ rules_version = '2';
 
 // Who may use the sales book: Google accounts whose email is listed under /members.
 // The first person to sign in to an empty shop becomes its owner (made together with /meta/bootstrap);
-// after that only an owner can add or remove people.
+// after that only an owner can add or remove people. Roles: owner and member change the book; a viewer only reads
+// what the sales sheet shows (settings, months, weeks, orders) and changes nothing.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() {
+    // A Google account (its email is verified).
+    function verified() {
       return request.auth != null && request.auth.token.email != null && request.auth.token.email_verified == true;
+    }
+    // A viewer's username login (lib/usernames.ts): a password account on the reserved viewer domain. Its address
+    // cannot be verified, so it only ever counts as a viewer.
+    function usernameLogin() {
+      return request.auth != null && request.auth.token.email != null
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && request.auth.token.email.matches('[a-z0-9][a-z0-9._-]*@viewer[.]salebook[.]invalid');
+    }
+    function signedIn() {
+      return verified() || usernameLogin();
     }
     function myEmail() {
       return request.auth.token.email.lower();
@@ -19,7 +31,10 @@ service cloud.firestore {
       return signedIn() && exists(memberDoc());
     }
     function isOwner() {
-      return isMember() && get(memberDoc()).data.role == 'owner';
+      return verified() && isMember() && get(memberDoc()).data.role == 'owner';
+    }
+    function isEditor() {
+      return verified() && isMember() && get(memberDoc()).data.role in ['owner', 'member'];
     }
     function bootstrapped() {
       return exists(/databases/$(database)/documents/meta/bootstrap);
@@ -30,19 +45,21 @@ service cloud.firestore {
     match /meta/bootstrap {
       allow read: if signedIn();
       // Claimed once, in the same write as the owner's own member document.
-      allow create: if signedIn() && !bootstrapped()
+      allow create: if verified() && !bootstrapped()
         && request.resource.data.owner == myEmail()
         && existsAfter(memberDoc());
     }
 
     match /members/{email} {
-      allow read: if signedIn() && (email == myEmail() || isMember());
+      allow read: if signedIn() && (email == myEmail() || isEditor());
       // The first owner, together with /meta/bootstrap.
-      allow create: if signedIn() && email == myEmail() && !bootstrapped()
+      allow create: if verified() && email == myEmail() && !bootstrapped()
         && request.resource.data.role == 'owner'
         && existsAfter(/databases/$(database)/documents/meta/bootstrap);
+      // A username login (the viewer domain) can only be a viewer.
       allow create, update: if isOwner() && email == email.lower()
-        && request.resource.data.role in ['owner', 'member'];
+        && request.resource.data.role in ['owner', 'member', 'viewer']
+        && (request.resource.data.role == 'viewer' || !email.matches('.*@viewer[.]salebook[.]invalid'));
       // An owner cannot remove themselves, so the shop always keeps one.
       allow delete: if isOwner() && email != myEmail();
     }
@@ -54,16 +71,19 @@ service cloud.firestore {
     }
 
     match /settings/{doc} {
-      allow read, write: if isMember();
+      allow read: if isMember();
+      allow write: if isEditor();
     }
     match /months/{monthId} {
-      allow read, write: if isMember();
+      allow read: if isMember();
+      allow write: if isEditor();
     }
     match /weeks/{weekKey} {
-      allow read, write: if isMember();
+      allow read: if isMember();
+      allow write: if isEditor();
     }
     match /settlements/{monthId} {
-      allow read, write: if isMember();
+      allow read, write: if isEditor();
     }
 
     match /orders/{id} {
@@ -75,8 +95,9 @@ service cloud.firestore {
           && d.status in ['p', 'u', 'x']
           && d.items is list && d.items.size() <= 200;
       }
-      allow read, delete: if isMember();
-      allow create, update: if isMember() && validOrder(request.resource.data);
+      allow read: if isMember();
+      allow delete: if isEditor();
+      allow create, update: if isEditor() && validOrder(request.resource.data);
     }
 
     match /notes/{id} {
@@ -86,8 +107,28 @@ service cloud.firestore {
           && d.code is string && d.due is string && isMoney(d.amount) && d.note is string
           && d.collected is bool && d.flagged is bool;
       }
-      allow read, delete: if isMember();
-      allow create, update: if isMember() && validNote(request.resource.data);
+      allow read, delete: if isEditor();
+      allow create, update: if isEditor() && validNote(request.resource.data);
+    }
+
+    // ---------- «ប្រវត្តិកែប្រែ» (change history) ----------
+    // Each change in the app saves a line here in the same batch (lib/db.ts): a line refused here refuses its change
+    // too. A line is never removed. by must be the person signed in and saved the server's time; typing on in the same
+    // box lets its author move only after and last, for an hour.
+    match /history/{id} {
+      function validLine(d) {
+        return d.keys().hasAll(['at', 'saved', 'by', 'act', 'kind', 'target', 'title'])
+          && d.by == myEmail()
+          && d.saved == request.time
+          && d.at is int
+          && d.act in ['add', 'edit', 'delete', 'restore', 'purge', 'close']
+          && d.kind is string && d.target is string && d.title is string;
+      }
+      allow read: if isEditor();
+      allow create: if isEditor() && validLine(request.resource.data);
+      allow update: if isEditor() && resource.data.by == myEmail()
+        && request.time < resource.data.saved + duration.value(1, 'h')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['after', 'last']);
     }
   }
 }

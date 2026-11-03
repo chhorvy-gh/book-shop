@@ -6,22 +6,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { dropItems, takeItems } from "@/lib/calcItems";
 import { fmt, latinDigits, margin, prefixOf, signed } from "@/lib/format";
-import { NEXT_STATUS, STATUS, findCode, nextCodeNumber, totals } from "@/lib/orders";
+import { NEXT_STATUS, STATUS, findCode, nextCodeNumber, sumItems, totals } from "@/lib/orders";
 import { monthLabel, pickedWeek, weekKey, weekLabel, weekMarts, weekRange } from "@/lib/periods";
 import { TRASH_NAME, trashedWeeks } from "@/lib/trash";
-import type { InvoiceData, Month, Order, Seller, Week } from "@/lib/types";
+import type { InvoiceData, Item, Month, Order, Seller, Week } from "@/lib/types";
 import DeletePeriodDialog, { type PeriodTarget } from "../dialogs/DeletePeriodDialog";
 import MonthDialog from "../dialogs/MonthDialog";
 import WeekDialog from "../dialogs/WeekDialog";
 import { Icon } from "../icons";
 import PeriodBar from "../PeriodBar";
-import { useSaleBook } from "../store";
+import { useReadOnly, useSaleBook } from "../store";
 import { Tabs, useNote } from "../ui";
 import EditDialog, { type OrderEdit } from "./EditDialog";
 import Invoice from "./Invoice";
 import OrdersTable, { PAGE_SIZE, type Filter, type Originals } from "./OrdersTable";
 import SellerCombo from "./SellerCombo";
+import ViewDialog from "./ViewDialog";
 import { BulkDeleteDialog, DeleteDialog, ExportDialog, MartDialog, SellerDialog, type ExportKind } from "./SalesDialogs";
 
 // The page title, which becomes the file name when an invoice is saved as PDF.
@@ -29,17 +31,27 @@ const setDocTitle = (title: string) => {
   document.title = title;
 };
 
+// What the quick calculator sent: the totals for the add form, and its item list for the order.
+interface FromCalc {
+  cost: string;
+  sale: string;
+  items: Item[];
+}
+
 export default function SalesPage() {
   const { state } = useSaleBook();
+  // A viewer browses the months, weeks and marts, but makes and deletes none.
+  const readOnly = useReadOnly();
   const { month, week } = pickedWeek(state);
   const note = useNote();
   const router = useRouter();
   const params = useSearchParams();
-  // The quick calculator links here with ?cost=95000&sale=110000 (sale only when every item has one).
-  const [fromCalc] = useState(() => {
+  // The quick calculator links here with ?cost=95000&sale=110000 (sale only when every item has one), and leaves its
+  // item list in session storage.
+  const [fromCalc] = useState<FromCalc | null>(() => {
     const cost = parseFloat(params.get("cost") ?? "");
     const sale = parseFloat(params.get("sale") ?? "");
-    return cost > 0 ? { cost: String(cost), sale: sale > 0 ? String(sale) : "" } : null;
+    return cost > 0 ? { cost: String(cost), sale: sale > 0 ? String(sale) : "", items: takeItems(cost) } : null;
   });
   const [weekDialog, setWeekDialog] = useState<{ open: boolean; editing: Week | null }>({ open: false, editing: null });
   const [monthOpen, setMonthOpen] = useState(false);
@@ -51,10 +63,11 @@ export default function SalesPage() {
   useEffect(() => {
     if (!fromCalc) return;
     note.show(
-      `លុយដើម ${fmt(+fromCalc.cost)}${fromCalc.sale ? ` និងលុយលក់ ${fmt(+fromCalc.sale)}` : ""} មកពីគណនារហ័ស · ${fromCalc.sale ? "ជ្រើសអ្នកលក់ ហើយចុចបន្ថែម។" : "ជ្រើសអ្នកលក់ ហើយបញ្ចូលលុយលក់។"}`,
+      `លុយដើម ${fmt(+fromCalc.cost)}${fromCalc.sale ? ` និងលុយលក់ ${fmt(+fromCalc.sale)}` : ""}${fromCalc.items.length ? ` និងបញ្ជីទំនិញ ${fromCalc.items.length} មុខ` : ""} មកពីគណនារហ័ស · ${fromCalc.sale ? "ជ្រើសអ្នកលក់ ហើយចុចបន្ថែម។" : "ជ្រើសអ្នកលក់ ហើយបញ្ចូលលុយលក់។"}`,
     );
     // A reload should not bring the amounts back.
     router.replace("/sales", { scroll: false });
+    dropItems();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the page opens
   }, []);
 
@@ -83,30 +96,34 @@ export default function SalesPage() {
     <PeriodBar
       mode="week"
       afterMonth={
-        <>
-          <button type="button" className="btn btn-outline" onClick={() => setMonthOpen(true)}>
-            <Icon name="plus" size={16} />
-            ខែថ្មី
-          </button>
-          <button type="button" className="btn btn-outline" id="delete-month" onClick={() => setDeleting({ month, week: null })}>
-            <Icon name="trash" size={16} />
-            លុបខែ
-          </button>
-          <span className="period-sep" aria-hidden="true" />
-        </>
+        !readOnly && (
+          <>
+            <button type="button" className="btn btn-outline" onClick={() => setMonthOpen(true)}>
+              <Icon name="plus" size={16} />
+              ខែថ្មី
+            </button>
+            <button type="button" className="btn btn-outline" id="delete-month" onClick={() => setDeleting({ month, week: null })}>
+              <Icon name="trash" size={16} />
+              លុបខែ
+            </button>
+            <span className="period-sep" aria-hidden="true" />
+          </>
+        )
       }
     >
-      {week && (
+      {!readOnly && week && (
         <button type="button" className="btn btn-outline" onClick={() => setWeekDialog({ open: true, editing: week })}>
           <Icon name="edit" size={16} />
           កែថ្ងៃ
         </button>
       )}
-      <button type="button" className="btn btn-outline" onClick={newWeek}>
-        <Icon name="plus" size={16} />
-        អាទិត្យថ្មី
-      </button>
-      {week && (
+      {!readOnly && (
+        <button type="button" className="btn btn-outline" onClick={newWeek}>
+          <Icon name="plus" size={16} />
+          អាទិត្យថ្មី
+        </button>
+      )}
+      {!readOnly && week && (
         <button type="button" className="btn btn-outline" id="delete-week" onClick={() => setDeleting({ month, week })}>
           <Icon name="trash" size={16} />
           លុបអាទិត្យ
@@ -129,7 +146,7 @@ export default function SalesPage() {
           </header>
           {periodBar}
           {note.element}
-          <div className="card empty-card">ខែនេះមិនទាន់មានអាទិត្យ · ចុច «អាទិត្យថ្មី» ដើម្បីចាប់ផ្តើមបញ្ចូលការលក់</div>
+          <div className="card empty-card">{readOnly ? "ខែនេះមិនទាន់មានអាទិត្យ" : "ខែនេះមិនទាន់មានអាទិត្យ · ចុច «អាទិត្យថ្មី» ដើម្បីចាប់ផ្តើមបញ្ចូលការលក់"}</div>
         </>
       )}
       <WeekDialog open={weekDialog.open} month={month} editing={weekDialog.editing} onClose={() => setWeekDialog({ open: false, editing: null })} onDone={periodDone} />
@@ -160,11 +177,14 @@ function WeekSheet({
   week: Week;
   periodBar: React.ReactNode;
   note: ReturnType<typeof useNote>;
-  fromCalc: { cost: string; sale: string } | null;
+  fromCalc: FromCalc | null;
   focusKey: number;
 }) {
   const book = useSaleBook();
   const { state } = book;
+  const readOnly = useReadOnly();
+  // A viewer limited to one seller (the store already left everyone else's orders out).
+  const onlySeller = readOnly ? book.access.seller : undefined;
   const key = weekKey(month, week);
   const marts = weekMarts(state, month, week);
   const range = weekRange(week);
@@ -180,6 +200,9 @@ function WeekSheet({
     () => new Map(marts.flatMap((m) => m.orders.map((o) => [o.id, { code: o.code, cost: o.cost, sale: o.sale }] as const))),
   );
   const [editing, setEditing] = useState<Order | null>(null);
+  // The order open in the view dialog, by id, so the dialog follows edits made meanwhile (and closes if it goes).
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const viewing = viewingId ? (mart.orders.find((o) => o.id === viewingId) ?? null) : null;
   const [deleting, setDeleting] = useState<Order | null>(null);
   // Ticked rows. They clear when the mart, filter or search changes, so a bulk action only reaches orders on screen.
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -198,6 +221,10 @@ function WeekSheet({
   const [codeEdited, setCodeEdited] = useState(false);
   const [cost, setCost] = useState(fromCalc?.cost ?? "");
   const [sale, setSale] = useState(fromCalc?.sale ?? "");
+  // The calculator's item list goes with the next order, as long as the amounts are still its totals.
+  const [calcItems, setCalcItems] = useState<Item[]>(fromCalc?.items ?? []);
+  const itemsFor = (c: number, s: number) =>
+    calcItems.length && calcItems.length <= 200 && sumItems(calcItems, "cost") === c && sumItems(calcItems, "sale") === s ? calcItems : null;
   const costRef = useRef<HTMLInputElement>(null);
   const saleRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
@@ -243,7 +270,9 @@ function WeekSheet({
       return;
     }
     // Prices are optional here: an empty box adds the order at 0, to fill in later in the table.
-    const order = { no: Math.max(0, ...mart.orders.map((o) => o.no)) + 1, code: finalCode, cost: parseFloat(cost) || 0, sale: saleNum || 0, status: "u" as const, items: [] };
+    const [c, s] = [parseFloat(cost) || 0, saleNum || 0];
+    const order = { no: Math.max(0, ...mart.orders.map((o) => o.no)) + 1, code: finalCode, cost: c, sale: s, status: "u" as const, items: itemsFor(c, s) ?? [] };
+    setCalcItems([]);
     const id = book.addOrder(key, mart.id, order);
     setOriginals((m) => new Map(m).set(id, { code: order.code, cost: order.cost, sale: order.sale }));
     setNewId(id);
@@ -262,13 +291,16 @@ function WeekSheet({
   // Puts the typed amounts into an order that already has the code; a box left empty keeps the order's amount. The table
   // then shows that order, marked like a new one, with the changed cells saying what they were.
   function fillOrder(o: Order, martId: string) {
-    const patch: Partial<Pick<Order, "cost" | "sale">> = {};
+    const patch: Partial<Pick<Order, "cost" | "sale" | "items">> = {};
     if (cost.trim() !== "") patch.cost = parseFloat(cost) || 0;
     if (sale.trim() !== "") patch.sale = saleNum || 0;
     if (!("cost" in patch) && !("sale" in patch)) {
       costRef.current?.focus();
       return;
     }
+    const items = itemsFor(patch.cost ?? o.cost, patch.sale ?? o.sale);
+    if (items) patch.items = items;
+    setCalcItems([]);
     book.updateOrder(o.id, patch);
     const list = marts.find((m) => m.id === martId)?.orders ?? [];
     if (martId !== mart.id) setSheet(martId);
@@ -373,129 +405,137 @@ function WeekSheet({
         <div className="stack">
           <span className="eyebrow">
             {monthLabel(month)} · {weekLabel(week)} · {range}
+            {onlySeller ? ` · តែ ${names.get(onlySeller) ?? onlySeller}` : ""}
           </span>
           <h1>តារាងលក់</h1>
         </div>
         <div className="actions" style={{ alignItems: "center" }}>
           <Tabs label="ជ្រើស Mart" id="sheet-tabs" value={mart.id} onPick={openSheet} items={marts.map((m) => ({ key: m.id, label: m.label, count: count(m.orders) }))} />
-          <button type="button" className="btn btn-outline" onClick={() => setMartOpen(true)}>
-            <Icon name="edit" size={16} />
-            កែ Mart
-          </button>
-          <button type="button" className="btn btn-outline" onClick={newMart}>
-            <Icon name="plus" size={16} />
-            Mart ថ្មី
-          </button>
-          <button type="button" className="btn btn-outline" onClick={() => setExportOpen(true)}>
-            <Icon name="download" />
-            នាំចេញ Excel
-          </button>
+          {!readOnly && (
+            <>
+              <button type="button" className="btn btn-outline" onClick={() => setMartOpen(true)}>
+                <Icon name="edit" size={16} />
+                កែ Mart
+              </button>
+              <button type="button" className="btn btn-outline" onClick={newMart}>
+                <Icon name="plus" size={16} />
+                Mart ថ្មី
+              </button>
+              <button type="button" className="btn btn-outline" onClick={() => setExportOpen(true)}>
+                <Icon name="download" />
+                នាំចេញ Excel
+              </button>
+            </>
+          )}
         </div>
       </header>
 
       {periodBar}
       {note.element}
 
-      <form className="card" id="add-form" aria-label="បញ្ចូលការបញ្ជាទិញថ្មី" style={{ padding: "20px 24px", gap: 14 }} noValidate onSubmit={addOrder}>
-        <div className="card-head">
-          <h2 style={{ fontSize: 16 }}>បញ្ចូលការបញ្ជាទិញថ្មី</h2>
-          <span className="sub">កូដបង្កើតដោយស្វ័យប្រវត្តិ តាមអ្នកលក់ ហើយកែបាន · ចុច Enter ដើម្បីបន្ថែម</span>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 12px" }}>
-          <span id="form-mart-label" style={{ fontSize: 13, fontWeight: 500 }}>
-            ដាក់ចូល
-          </span>
-          {/* The mart picked at the top is also where a new order goes, so the form shows the same choice. */}
-          <Tabs labelledBy="form-mart-label" id="form-mart" value={mart.id} onPick={openSheet} items={marts.map((m) => ({ key: m.id, label: m.label }))} />
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, alignItems: "start" }}>
-          <div className="field">
-            <span className="field-head">
-              <label htmlFor="seller" id="seller-label">
-                អ្នកលក់
-              </label>
-              <button type="button" className="field-link" onClick={() => setSellerDialog({ open: true, name: "", code: "" })}>
-                + អ្នកលក់ថ្មី
-              </button>
-            </span>
-            <SellerCombo
-              sellers={state.sellers}
-              value={sellerCode}
-              onChange={(c) => {
-                setSellerCode(c);
-                setCode("");
-                setCodeEdited(false);
-              }}
-              onAddNew={(name) => setSellerDialog({ open: true, name, code: "" })}
-            />
+      {!readOnly && (
+        <form className="card" id="add-form" aria-label="បញ្ចូលការបញ្ជាទិញថ្មី" style={{ padding: "20px 24px", gap: 14 }} noValidate onSubmit={addOrder}>
+          <div className="card-head">
+            <h2 style={{ fontSize: 16 }}>បញ្ចូលការបញ្ជាទិញថ្មី</h2>
+            <span className="sub">កូដបង្កើតដោយស្វ័យប្រវត្តិ តាមអ្នកលក់ ហើយកែបាន · ចុច Enter ដើម្បីបន្ថែម</span>
           </div>
-          <label className="field" htmlFor="code">
-            លេខកូដ
-            <input
-              ref={codeRef}
-              className="input code-input"
-              id="code"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              aria-describedby="code-hint"
-              aria-invalid={dup && !fill ? true : undefined}
-              value={codeEdited ? code : autoCode}
-              onChange={(e) => {
-                const v = latinDigits(e.target.value.trim());
-                setCode(e.target.value);
-                setCodeEdited(v !== "");
-                // Typing another seller's prefix ("ហេង36") switches the seller to match.
-                if (names.has(prefixOf(v))) setSellerCode(prefixOf(v));
-              }}
-              // Emptying the box goes back to the automatic code.
-              onBlur={() => {
-                if (!code.trim()) setCodeEdited(false);
-              }}
-            />
-            {fill ? (
-              <span className="sub t-accent" id="code-hint">
-                {`ការបញ្ជាទិញ #${fill.no} ${fill.mart} មានកូដនេះ · លុយដែលវាយ នឹងដាក់ចូលវា`}
-                {fill.order.cost || fill.order.sale ? ` (ជំនួស ${fmt(fill.order.cost)} / ${fmt(fill.order.sale)})` : ""}
-              </span>
-            ) : dup ? (
-              <span className="field-error" id="code-hint">
-                កូដនេះមានរួចហើយ · #{dup.no} {dup.mart} · បោះបង់
-              </span>
-            ) : unknown ? (
-              <span className="field-error t-warning" id="code-hint">
-                មិនស្គាល់អ្នកលក់នៃកូដនេះ ·{" "}
-                <button type="button" className="field-link" onClick={() => setSellerDialog({ open: true, name: "", code: unknown })}>
-                  + បន្ថែមអ្នកលក់ «{unknown}»
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 12px" }}>
+            <span id="form-mart-label" style={{ fontSize: 13, fontWeight: 500 }}>
+              ដាក់ចូល
+            </span>
+            {/* The mart picked at the top is also where a new order goes, so the form shows the same choice. */}
+            <Tabs labelledBy="form-mart-label" id="form-mart" value={mart.id} onPick={openSheet} items={marts.map((m) => ({ key: m.id, label: m.label }))} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, alignItems: "start" }}>
+            <div className="field">
+              <span className="field-head">
+                <label htmlFor="seller" id="seller-label">
+                  អ្នកលក់
+                </label>
+                <button type="button" className="field-link" onClick={() => setSellerDialog({ open: true, name: "", code: "" })}>
+                  + អ្នកលក់ថ្មី
                 </button>
               </span>
-            ) : null}
-          </label>
-          <label className="field" htmlFor="cost">
-            លុយដើម
-            <input ref={costRef} className="input num" id="cost" type="number" inputMode="numeric" min={0} placeholder="ឧ. 81000" value={cost} onChange={(e) => setCost(e.target.value)} />
-          </label>
-          <label className="field" htmlFor="sale">
-            លុយលក់
-            <input ref={saleRef} className="input num" id="sale" type="number" inputMode="numeric" min={0} placeholder="ឧ. 95000" value={sale} onChange={(e) => setSale(e.target.value)} />
-          </label>
-          <div className="field">
-            <span>ចំណេញ</span>
-            <span className={`readout ${preview === null ? "muted" : preview < 0 ? "t-danger" : "t-success"}`} id="preview">
-              {preview === null ? "—" : fmt(preview)}
-            </span>
+              <SellerCombo
+                sellers={state.sellers}
+                value={sellerCode}
+                onChange={(c) => {
+                  setSellerCode(c);
+                  setCode("");
+                  setCodeEdited(false);
+                }}
+                onAddNew={(name) => setSellerDialog({ open: true, name, code: "" })}
+              />
+            </div>
+            <label className="field" htmlFor="code">
+              លេខកូដ
+              <input
+                ref={codeRef}
+                className="input code-input"
+                id="code"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                aria-describedby="code-hint"
+                aria-invalid={dup && !fill ? true : undefined}
+                value={codeEdited ? code : autoCode}
+                onChange={(e) => {
+                  const v = latinDigits(e.target.value.trim());
+                  setCode(e.target.value);
+                  setCodeEdited(v !== "");
+                  // Typing another seller's prefix ("ហេង36") switches the seller to match.
+                  if (names.has(prefixOf(v))) setSellerCode(prefixOf(v));
+                }}
+                // Emptying the box goes back to the automatic code.
+                onBlur={() => {
+                  if (!code.trim()) setCodeEdited(false);
+                }}
+              />
+              {fill ? (
+                <span className="sub t-accent" id="code-hint">
+                  {`ការបញ្ជាទិញ #${fill.no} ${fill.mart} មានកូដនេះ · លុយដែលវាយ នឹងដាក់ចូលវា`}
+                  {fill.order.cost || fill.order.sale ? ` (ជំនួស ${fmt(fill.order.cost)} / ${fmt(fill.order.sale)})` : ""}
+                </span>
+              ) : dup ? (
+                <span className="field-error" id="code-hint">
+                  កូដនេះមានរួចហើយ · #{dup.no} {dup.mart} · បោះបង់
+                </span>
+              ) : unknown ? (
+                <span className="field-error t-warning" id="code-hint">
+                  មិនស្គាល់អ្នកលក់នៃកូដនេះ ·{" "}
+                  <button type="button" className="field-link" onClick={() => setSellerDialog({ open: true, name: "", code: unknown })}>
+                    + បន្ថែមអ្នកលក់ «{unknown}»
+                  </button>
+                </span>
+              ) : null}
+            </label>
+            <label className="field" htmlFor="cost">
+              លុយដើម
+              <input ref={costRef} className="input num" id="cost" type="number" inputMode="numeric" min={0} placeholder="ឧ. 81000" value={cost} onChange={(e) => setCost(e.target.value)} />
+            </label>
+            <label className="field" htmlFor="sale">
+              លុយលក់
+              <input ref={saleRef} className="input num" id="sale" type="number" inputMode="numeric" min={0} placeholder="ឧ. 95000" value={sale} onChange={(e) => setSale(e.target.value)} />
+            </label>
+            <div className="field">
+              <span>ចំណេញ</span>
+              <span className={`readout ${preview === null ? "muted" : preview < 0 ? "t-danger" : "t-success"}`} id="preview">
+                {preview === null ? "—" : fmt(preview)}
+              </span>
+            </div>
+            <div className="field">
+              <span aria-hidden="true">&nbsp;</span>
+              <button type="submit" className="btn btn-primary">
+                {fill ? `ដាក់ចូល ${fillName}` : "បន្ថែមការបញ្ជាទិញ"}
+              </button>
+            </div>
           </div>
-          <div className="field">
-            <span aria-hidden="true">&nbsp;</span>
-            <button type="submit" className="btn btn-primary">
-              {fill ? `ដាក់ចូល ${fillName}` : "បន្ថែមការបញ្ជាទិញ"}
-            </button>
-          </div>
-        </div>
-      </form>
+        </form>
+      )}
 
       <div className="split" style={{ gap: 20 }}>
         <OrdersTable
+          readOnly={readOnly}
           orders={mart.orders}
           marts={marts}
           names={names}
@@ -517,6 +557,7 @@ function WeekSheet({
           newId={newId}
           onChange={patch}
           onToggleStatus={(o) => patch(o, { status: NEXT_STATUS[o.status] })}
+          onView={(o) => setViewingId(o.id)}
           onEdit={setEditing}
           onPrint={printInvoice}
           onDelete={setDeleting}
@@ -535,26 +576,35 @@ function WeekSheet({
                 <dt>ការបញ្ជាទិញ</dt>
                 <dd>{t.count}</dd>
               </div>
-              <div>
-                <dt>លុយដើម</dt>
-                <dd>{fmt(t.cost)}</dd>
-              </div>
-              <div>
+              {/* A viewer is not shown cost prices or profit: their sales are the total. */}
+              {!readOnly && (
+                <div>
+                  <dt>លុយដើម</dt>
+                  <dd>{fmt(t.cost)}</dd>
+                </div>
+              )}
+              <div className={readOnly ? "total" : undefined}>
                 <dt>លុយលក់</dt>
                 <dd>{fmt(t.sale)}</dd>
               </div>
-              <div className="total">
-                <dt>ចំណេញ</dt>
-                <dd className="t-success">{fmt(t.profit)}</dd>
-              </div>
-              <div>
-                <dt>អត្រាចំណេញ</dt>
-                <dd style={{ fontWeight: 400 }}>{margin(t.profit, t.sale)}</dd>
-              </div>
+              {!readOnly && (
+                <>
+                  <div className="total">
+                    <dt>ចំណេញ</dt>
+                    <dd className="t-success">{fmt(t.profit)}</dd>
+                  </div>
+                  <div>
+                    <dt>អត្រាចំណេញ</dt>
+                    <dd style={{ fontWeight: 400 }}>{margin(t.profit, t.sale)}</dd>
+                  </div>
+                </>
+              )}
             </dl>
-            <Link href="/sellers" style={{ fontSize: 13, fontWeight: 500 }}>
-              ចែកចំណេញតាមអ្នកលក់
-            </Link>
+            {!readOnly && (
+              <Link href="/sellers" style={{ fontSize: 13, fontWeight: 500 }}>
+                ចែកចំណេញតាមអ្នកលក់
+              </Link>
+            )}
           </section>
 
           <section className="card" style={{ padding: "20px 24px", gap: 12 }}>
@@ -586,6 +636,21 @@ function WeekSheet({
         </aside>
       </div>
 
+      <ViewDialog
+        order={viewing}
+        meta={meta}
+        seller={viewing ? (names.get(prefixOf(viewing.code)) ?? "") : ""}
+        onClose={() => setViewingId(null)}
+        onEdit={
+          readOnly
+            ? undefined
+            : () => {
+                setViewingId(null);
+                setEditing(viewing);
+              }
+        }
+        onPrint={() => viewing && printInvoice(viewing)}
+      />
       <EditDialog
         order={editing}
         meta={meta}
