@@ -20,6 +20,7 @@ export const NAV: [string, string, string, IconName][] = [
   ["/monthly", "សង្ខេបប្រចាំខែ", "Monthly summary", "calendar"],
   ["/settlement", "ទូទាត់ចុងខែ", "Month-end", "calc"],
   ["/notes", "កំណត់ចំណាំ", "Pay-later notes", "note"],
+  ["/trash", "បានលុបថ្មីៗ", "Recently deleted", "trash"],
   ["/account", "គណនី", "Account", "user"],
 ];
 
@@ -31,7 +32,7 @@ export function Brand() {
       </div>
       <div className="stack">
         <b>សៀវភៅលក់</b>
-        <span className="sub">Chhorvy Sales Book</span>
+        <span className="sub">LL Sales Book</span>
       </div>
     </div>
   );
@@ -85,9 +86,9 @@ function Sidebar() {
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { state } = useSaleBook();
-  // A shop with no month yet starts on the welcome card. The account page (to add people) and the calculator
-  // (it needs no month) still open.
-  const empty = !hasMonths(state) && pathname !== "/account" && pathname !== "/calculator";
+  // A shop with no month yet starts on the welcome card. The account page (to add people), the calculator (it needs
+  // no month) and the recently deleted page (to bring a deleted month back) still open.
+  const empty = !hasMonths(state) && !["/account", "/calculator", "/trash"].includes(pathname);
   return (
     <div className="app">
       <Sidebar />

@@ -1,7 +1,8 @@
 "use client";
 
 // One mart's orders for the week (the mockup's #table-card): filter tabs and search, the table with cells that edit in
-// place, totals over every matching row, the pager and the hint line.
+// place, totals over every matching row, the pager and the hint line. A tick box starts each row; while rows are ticked a
+// bar above the table changes the status of all of them, or deletes them, at once.
 import { useState } from "react";
 import { fmt, latinDigits, prefixOf } from "@/lib/format";
 import { STATUS, findCode, totals } from "@/lib/orders";
@@ -31,6 +32,12 @@ interface Props {
   onEdit: (o: Order) => void;
   onPrint: (o: Order) => void;
   onDelete: (o: Order) => void;
+  selected: Set<string>; // ids of the ticked orders
+  onTick: (ids: string[], on: boolean) => void;
+  onClearTicks: () => void;
+  // Given the ticked orders that match the filter and search, which are the ones the bar counts.
+  onBulkStatus: (orders: Order[], status: "p" | "u") => void;
+  onBulkDelete: (orders: Order[]) => void;
 }
 
 const EDIT_ICON = (
@@ -46,10 +53,11 @@ function SellerChip({ name, cancelled }: { name?: string; cancelled: boolean }) 
   return cancelled ? null : <span className="chip chip-warning">មិនស្គាល់អ្នកលក់</span>;
 }
 
-// One order. While the code is typed, the seller cell names the seller of the new code, or says the code is empty or
-// already used this week (the box turns red and Enter stays on it). Enter, the arrows or leaving keep a good code;
-// Esc, or leaving with a bad one, puts the code back as it was.
-function Row({ o, props }: { o: Order; props: Props }) {
+// One order. While the code is typed, the seller cell names the seller of the new code, or says it is already used this
+// week (the box turns red and Enter stays on it). Enter, the arrows or leaving keep a good code; Esc, or leaving with a
+// used one, puts the code back as it was. The code can be emptied like the amounts: the order then has no seller (both
+// cells show "—") until a code is typed again.
+function Row({ o, props, ticked }: { o: Order; props: Props; ticked: boolean }) {
   const { marts, names, originals } = props;
   const [draft, setDraft] = useState<string | null>(null);
   const orig = originals.get(o.id) ?? o;
@@ -58,7 +66,8 @@ function Row({ o, props }: { o: Order; props: Props }) {
   const typed = draft === null ? null : latinDigits(draft.trim());
   const dup = typed ? findCode(marts, typed, o.id) : null;
   // The seller column is narrow: the chip says it short, the tooltip and screen readers get it in full.
-  const problem = typed === null ? "" : !typed ? "បញ្ចូលកូដ" : dup ? `ស្ទួន #${dup.no}` : "";
+  const problem = dup ? `ស្ទួន #${dup.no}` : "";
+  const shownCode = typed ?? o.code;
   const full = dup ? `កូដនេះមានរួចហើយ · #${dup.no} ${dup.mart}` : problem;
   const codeEdited = o.code !== orig.code;
   const [label, tone] = [STATUS[o.status].label, STATUS[o.status].tone];
@@ -89,7 +98,19 @@ function Row({ o, props }: { o: Order; props: Props }) {
   };
 
   return (
-    <tr id={`order-${o.id}`} className={[o.id === props.newId ? "is-new" : "", cancelled ? "is-cancelled" : ""].filter(Boolean).join(" ") || undefined}>
+    <tr
+      id={`order-${o.id}`}
+      className={[o.id === props.newId ? "is-new" : "", cancelled ? "is-cancelled" : "", ticked ? "is-selected" : ""].filter(Boolean).join(" ") || undefined}
+    >
+      <td className="cell-check">
+        <input
+          type="checkbox"
+          className="row-check"
+          checked={ticked}
+          onChange={(e) => props.onTick([o.id], e.target.checked)}
+          aria-label={`ជ្រើសការបញ្ជាទិញ #${o.no}${o.code ? ` · ${o.code}` : ""}`}
+        />
+      </td>
       <td className="muted">{o.no}</td>
       <td className="cell">
         <input
@@ -98,6 +119,7 @@ function Row({ o, props }: { o: Order; props: Props }) {
           autoComplete="off"
           spellCheck={false}
           data-field="code"
+          placeholder="—"
           value={draft ?? o.code}
           aria-label={`កូដ ការបញ្ជាទិញ ${o.no}`}
           aria-invalid={problem ? true : undefined}
@@ -126,8 +148,10 @@ function Row({ o, props }: { o: Order; props: Props }) {
           <span className="chip chip-danger" title={full}>
             {problem}
           </span>
+        ) : shownCode ? (
+          <SellerChip name={names.get(prefixOf(shownCode))} cancelled={cancelled} />
         ) : (
-          <SellerChip name={names.get(prefixOf(typed ?? o.code))} cancelled={cancelled} />
+          <span className="muted">—</span>
         )}
       </td>
       {money("cost", "លុយដើម")}
@@ -188,6 +212,10 @@ export default function OrdersTable(props: Props) {
   // Totals cover every row that matches the filter, on all pages.
   const sum = totals(shown);
   const n = (st?: "p" | "u") => orders.filter((o) => !st || o.status === st).length;
+  // Only ticked orders still in the list count, so an order that leaves it (its status changed under a filter) is never
+  // acted on unseen.
+  const ticked = shown.filter((o) => props.selected.has(o.id));
+  const tickedHere = rows.filter((o) => props.selected.has(o.id)).length;
 
   const goPage = (p: number) => {
     onPage(p);
@@ -214,9 +242,34 @@ export default function OrdersTable(props: Props) {
           <input className="input" id="search" type="search" placeholder="ស្វែងរកកូដ ឬឈ្មោះអ្នកលក់" aria-label="ស្វែងរក" value={query} onChange={(e) => onQuery(e.target.value)} />
         </div>
       </div>
+      {ticked.length > 0 && (
+        <div className="bulk-bar" role="region" aria-label="ការបញ្ជាទិញដែលបានជ្រើស">
+          <span className="strong">បានជ្រើស {ticked.length} ការបញ្ជាទិញ</span>
+          {ticked.length < shown.length && (
+            <button type="button" className="row-btn" onClick={() => props.onTick(shown.map((o) => o.id), true)}>
+              ជ្រើសទាំង {shown.length}
+            </button>
+          )}
+          <span className="spacer" />
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => props.onBulkStatus(ticked, "p")}>
+            បានបង់
+          </button>
+          <button type="button" className="btn btn-outline btn-sm" onClick={() => props.onBulkStatus(ticked, "u")}>
+            មិនទាន់បង់
+          </button>
+          <button type="button" className="btn btn-danger-soft btn-sm" onClick={() => props.onBulkDelete(ticked)}>
+            <Icon name="trash" size={16} />
+            លុប
+          </button>
+          <button type="button" className="row-btn" aria-label="ឈប់ជ្រើស" title="ឈប់ជ្រើស" onClick={props.onClearTicks}>
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      )}
       <div className="table-wrap">
-        <table className="data fixed" style={{ minWidth: 780 }}>
+        <table className="data fixed" style={{ minWidth: 824 }}>
           <colgroup>
+            <col style={{ width: 44 }} />
             <col style={{ width: 60 }} />
             <col style={{ width: 108 }} />
             <col style={{ width: 124 }} />
@@ -228,6 +281,22 @@ export default function OrdersTable(props: Props) {
           </colgroup>
           <thead>
             <tr>
+              <th scope="col" className="cell-check">
+                {/* Ticks every row on this page; half-ticked when only some are. */}
+                <input
+                  type="checkbox"
+                  className="row-check"
+                  id="sel-page"
+                  checked={rows.length > 0 && tickedHere === rows.length}
+                  disabled={!rows.length}
+                  ref={(el) => {
+                    if (el) el.indeterminate = tickedHere > 0 && tickedHere < rows.length;
+                  }}
+                  onChange={(e) => props.onTick(rows.map((o) => o.id), e.target.checked)}
+                  aria-label="ជ្រើសការបញ្ជាទិញទាំងអស់ក្នុងទំព័រនេះ"
+                  title="ជ្រើសទាំងអស់ក្នុងទំព័រនេះ"
+                />
+              </th>
               <th scope="col">លេខ</th>
               <th scope="col">
                 <span className="th-edit">កូដ {EDIT_ICON}</span>
@@ -250,16 +319,16 @@ export default function OrdersTable(props: Props) {
           </thead>
           <tbody id="rows">
             {rows.length ? (
-              rows.map((o) => <Row key={o.id} o={o} props={props} />)
+              rows.map((o) => <Row key={o.id} o={o} props={props} ticked={props.selected.has(o.id)} />)
             ) : (
               <tr className="empty">
-                <td colSpan={8}>{orders.length ? "គ្មានការបញ្ជាទិញត្រូវនឹងតម្រងនេះទេ" : "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ · បញ្ចូលការបញ្ជាទិញដំបូងនៅខាងលើ"}</td>
+                <td colSpan={9}>{orders.length ? "គ្មានការបញ្ជាទិញត្រូវនឹងតម្រងនេះទេ" : "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ · បញ្ចូលការបញ្ជាទិញដំបូងនៅខាងលើ"}</td>
               </tr>
             )}
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={3}>សរុបគ្រប់ទំព័រ · {sum.count} ការបញ្ជាទិញ</td>
+              <td colSpan={4}>សរុបគ្រប់ទំព័រ · {sum.count} ការបញ្ជាទិញ</td>
               <td className="r">{fmt(sum.cost)}</td>
               <td className="r">{fmt(sum.sale)}</td>
               <td className="r t-success">{fmt(sum.profit)}</td>

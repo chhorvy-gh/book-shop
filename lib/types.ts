@@ -86,6 +86,18 @@ export interface Note {
   flagged: boolean;
 }
 
+// ---------- «បានលុបថ្មីៗ» (recently deleted) ----------
+
+// When a month, week or mart was deleted, and by whom (email). It stays in the database with its orders, out of every
+// page, until it is restored or deleted for good on the recently deleted page.
+export interface Deleted {
+  at: number;
+  by: string;
+}
+
+// One thing in «បានលុបថ្មីៗ»: a month (id "2026-10"), a week of a month still in the book, or a mart.
+export type TrashRef = { kind: "month"; month: string } | { kind: "week"; month: string; no: number } | { kind: "mart"; id: string };
+
 // One seller's line on a week's payout sheet, beyond their profit less the share.
 export interface PayoutEntry {
   deduct: number;
@@ -125,4 +137,11 @@ export interface SaleBookState {
   // Months whose orders are all loaded. A closed month that is not loaded uses its saved totals; its sheets hold only
   // the unpaid orders (for the pay-later notes page).
   loaded: string[];
+  // What is in «បានលុបថ្មីៗ», newest first: whole months (with their weeks), weeks of months still in the book, and marts
+  // (their names stay in martNames). Everything above leaves them out, with their orders, notes and payouts.
+  trash: {
+    months: { month: Month; deleted: Deleted }[];
+    weeks: { month: Month; week: Week; deleted: Deleted }[];
+    marts: { id: string; deleted: Deleted }[];
+  };
 }

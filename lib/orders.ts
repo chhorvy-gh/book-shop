@@ -21,10 +21,12 @@ export const totals = (orders: Order[]) => {
 };
 
 // Order codes are unique across all marts of the week. exceptId = the order being edited, which may keep its own code.
+// An empty code (an order whose code was cleared) is never a duplicate: any number of orders may be without one.
 export function findCode(marts: Mart[], code: string, exceptId?: string) {
+  if (!code) return null;
   for (const m of marts) {
     const o = m.orders.find((x) => x.code === code && x.id !== exceptId);
-    if (o) return { no: o.no, mart: m.label };
+    if (o) return { no: o.no, mart: m.label, martId: m.id, order: o };
   }
   return null;
 }

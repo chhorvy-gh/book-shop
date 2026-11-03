@@ -1,7 +1,7 @@
 // Loads the mockup's sample data into the shop: week 3 of October 2026 with its two mart sheets, payout sheet,
 // adjustments and pay-later notes; weeks 1–2 of October as payout totals; July–September as past-month totals;
 // and October's month-end sheet. For trying the app; it only adds, never deletes.
-import type { Firestore } from "firebase/firestore";
+import { deleteField, type Firestore } from "firebase/firestore";
 import { writeMany, type MonthDoc, type NoteDoc, type OrderDoc, type SettingsDoc, type WeekDoc } from "./db";
 import { toDollars } from "./format";
 import { monthId, weekKey } from "./periods";
@@ -47,9 +47,17 @@ export async function loadSample(db: Firestore, by: string, current: { sellers: 
 
   // October: weeks 1–2 as payouts without sheets, week 3 with its sheets.
   const extraPay = Object.fromEntries(Object.entries(SAMPLE_EARLIER_WEEKS).map(([name, [w1, w2]]) => [name, [w1, w2, null, null, null]]));
+  // A sample month or week in «បានលុបថ្មីៗ» comes back with it.
   writes.push({
     path: ["months", mid],
-    data: { y: SAMPLE_MONTH.y, m: SAMPLE_MONTH.m, sample: true, extraPay, weeks: { [SAMPLE_WEEK.no]: { date: SAMPLE_WEEK.date } } } satisfies MonthDoc,
+    data: {
+      y: SAMPLE_MONTH.y,
+      m: SAMPLE_MONTH.m,
+      sample: true,
+      extraPay,
+      deleted: deleteField(),
+      weeks: { [SAMPLE_WEEK.no]: { date: SAMPLE_WEEK.date, deleted: deleteField() } },
+    },
     merge: true,
   });
   const week: WeekDoc = {

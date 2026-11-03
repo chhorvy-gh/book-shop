@@ -57,22 +57,23 @@ function EditForm({
   const profit = totalSale - totalCost;
   const changed = totalCost !== order.cost || totalSale !== order.sale;
 
-  // Names the seller of the code; an empty or duplicate code blocks saving, an unknown seller only warns.
+  // Names the seller of the code; a duplicate code blocks saving, an unknown seller only warns. The code may be left
+  // empty (as in the table): the order then counts for no seller until it has one.
   const clean = latinDigits(code.trim());
   const dup = clean ? findCode(marts, clean, order.id) : null;
   const seller = names.get(prefixOf(clean));
   const hint = !clean
-    ? { cls: "field-error", text: "បញ្ចូលលេខកូដ" }
+    ? { cls: "sub", text: "គ្មានកូដ · មិនរាប់ទៅអ្នកលក់ណាទេ រហូតដល់មានកូដ" }
     : dup
       ? { cls: "field-error", text: `កូដនេះមានរួចហើយ · #${dup.no} ${dup.mart}` }
       : seller
         ? { cls: "sub", text: `អ្នកលក់៖ ${seller}` }
         : { cls: "field-error t-warning", text: "មិនស្គាល់អ្នកលក់នៃកូដនេះ" };
-  const edit = (): OrderEdit => ({ code: clean || order.code, cost: totalCost, sale: totalSale, status, items });
+  const edit = (): OrderEdit => ({ code: clean, cost: totalCost, sale: totalSale, status, items });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!clean || dup) {
+    if (dup) {
       codeRef.current?.focus();
       return;
     }
@@ -113,7 +114,7 @@ function EditForm({
           autoComplete="off"
           spellCheck={false}
           aria-describedby="ed-code-hint"
-          aria-invalid={!clean || dup ? true : undefined}
+          aria-invalid={dup ? true : undefined}
           value={code}
           onChange={(e) => setCode(e.target.value)}
         />

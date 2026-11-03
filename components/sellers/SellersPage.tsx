@@ -11,11 +11,35 @@ import { Icon } from "../icons";
 import PeriodBar from "../PeriodBar";
 import { useSaleBook } from "../store";
 import { Tabs } from "../ui";
+import SellerDetailDialog, { type SellerDetail } from "./SellerDetailDialog";
 
 type Sort = "list" | "rest";
 
-// A long list shows this many rows, the last one being the "more" button.
-const SHOW = 6;
+// Order codes compared with their numbers read as numbers: HENG2 before HENG10.
+const byCode = new Intl.Collator(undefined, { numeric: true });
+
+// A card's list shows at most this many lines. A longer one shows its first SHOW and a "more" button under them;
+// opened, it stays SHOW lines tall and scrolls through the rest.
+const SHOW = 10;
+
+// Caps an opened list at the height of its first SHOW lines, borders included (offsetTop ignores the list's scrolling).
+function capHeight(ul: HTMLUListElement | null, isOpen: boolean) {
+  if (!ul) return;
+  const first = ul.firstElementChild as HTMLElement | null;
+  const last = ul.children[SHOW - 1] as HTMLElement | undefined;
+  ul.style.maxHeight =
+    isOpen && first && last ? `${last.offsetTop + last.offsetHeight - first.offsetTop + ul.offsetHeight - ul.clientHeight}px` : "";
+}
+
+// Opening a list scrolls it to the first line that was hidden, so the click visibly brings up more lines.
+function scrollToHidden(listId: string) {
+  requestAnimationFrame(() => {
+    const ul = document.getElementById(listId);
+    const first = ul?.firstElementChild as HTMLElement | null | undefined;
+    const next = ul?.children[SHOW] as HTMLElement | undefined;
+    if (ul && first && next) ul.scrollTo({ top: next.offsetTop - first.offsetTop, behavior: "smooth" });
+  });
+}
 
 interface Row {
   name: string;
@@ -24,8 +48,9 @@ interface Row {
   share: number;
   amount: number;
   orders: number;
-  lines: SellerLine[] | null; // a week: its order lines
-  weeks: { w: Week; profit: number; orders: number }[] | null; // a whole month: one line per week
+  // The seller's orders by week (a week picked has one), weeks without orders left out. Each week's are by code, its
+  // number read as a number (HENG2 before HENG10), then by order number. The card and the detail dialog both list these.
+  groups: { w: Week; title: string; lines: SellerLine[] }[];
 }
 
 export default function SellersPage() {
@@ -37,8 +62,10 @@ export default function SellersPage() {
   const [sort, setSort] = useState<Sort>("list");
   // Sellers whose card shows every line instead of the first few.
   const [open, setOpen] = useState<Set<string>>(() => new Set());
+  // The seller whose orders are open in the detail dialog.
+  const [detailOf, setDetailOf] = useState<string | null>(null);
 
-  // One row per seller for the period: a week lists its orders, a whole month lists one line per week.
+  // One row per seller for the period, with its orders: the week's, or every week's in a whole month.
   const weeks = w ? [w] : mo.weeks;
   const per = weeks.map((x) => bySeller(state, mo, x));
   const rows: Row[] = state.sellers.map(({ name, code }) => {
@@ -51,8 +78,9 @@ export default function SellersPage() {
       share: cut,
       amount: profit - cut,
       orders: per.reduce((a, p) => a + p[name].lines.length, 0),
-      lines: w ? per[0][name].lines : null,
-      weeks: w ? null : weeks.map((x, k) => ({ w: x, profit: per[k][name].profit, orders: per[k][name].lines.length })),
+      groups: weeks
+        .map((x, k) => ({ w: x, title: weekLabel(x), lines: [...per[k][name].lines].sort((a, b) => byCode.compare(a.code, b.code) || a.no - b.no) }))
+        .filter((g) => g.lines.length),
     };
   });
 
@@ -68,37 +96,42 @@ export default function SellersPage() {
       return next;
     });
 
-  const orderItems = (r: Row) =>
-    (r.lines ?? []).map((l, k) => (
-      <li key={k}>
-        <span style={{ display: "flex", gap: 8, minWidth: 0 }}>
-          <span className="no">#{l.no}</span>
-          <span>{l.code}</span>
-          {l.mart !== "1" && <span className="sub">{martLabel(state, l.mart)}</span>}
-        </span>
-        <span className={l.profit < 0 ? "strong t-danger" : "strong"}>{fmt(l.profit)}</span>
-      </li>
-    ));
+  const period = `${monthLabel(mo)} · ${w ? `${weekLabel(w)} · ${weekRange(w)}` : `ទាំងខែ · ${mo.weeks.length} អាទិត្យ`}`;
 
-  const weekItems = (r: Row) =>
-    !r.orders && !r.profit
-      ? []
-      : (r.weeks ?? []).map(({ w: x, profit, orders }) => (
-          <li key={x.no}>
-            <span style={{ display: "flex", gap: 8, minWidth: 0 }}>
-              <span>{weekLabel(x)}</span>
-              <span className="sub">{`${weekShort(x)} · ${orders} ការបញ្ជាទិញ`}</span>
-            </span>
-            <span className={`strong${profit < 0 ? " t-danger" : profit ? "" : " muted"}`}>{fmt(profit)}</span>
-          </li>
-        ));
+  // The detail dialog's seller, from the book as it is now; a seller removed meanwhile closes it.
+  const shown = rows.find((r) => r.name === detailOf);
+  const detail: SellerDetail | null = shown ? { name: shown.name, code: shown.code, period, groups: shown.groups, martName: (m) => martLabel(state, m) } : null;
+
+  // A card's lines: one per order. Order numbers start again each week, so when the orders fall in several weeks of the
+  // month, each week's name and dates come above its orders.
+  const orderItems = (r: Row) =>
+    r.groups.flatMap((g) => [
+      ...(r.groups.length > 1
+        ? [
+            <li className="week-head" key={`w${g.w.no}`}>
+              <span>{g.title}</span>
+              <span className="sub">{weekShort(g.w)}</span>
+            </li>,
+          ]
+        : []),
+      ...g.lines.map((l, k) => (
+        <li key={`${g.w.no}-${k}`}>
+          <span style={{ display: "flex", gap: 8, minWidth: 0 }}>
+            <span className="no">{l.no}</span>
+            <span>{l.code}</span>
+            {l.mart !== "1" && <span className="sub">{martLabel(state, l.mart)}</span>}
+          </span>
+          <span className={l.profit < 0 ? "strong t-danger" : "strong"}>{fmt(l.profit)}</span>
+        </li>
+      )),
+    ]);
 
   return (
     <>
       <header className="page-head">
         <div className="stack">
           <span className="eyebrow" id="eyebrow">
-            {`${monthLabel(mo)} · ${w ? `${weekLabel(w)} · ${weekRange(w)}` : `ទាំងខែ · ${mo.weeks.length} អាទិត្យ`}`}
+            {period}
           </span>
           <h1>ចំណេញតាមអ្នកលក់</h1>
         </div>
@@ -163,31 +196,23 @@ export default function SellersPage() {
       </section>
 
       <section className="seller-grid" id="cards" aria-label="អ្នកលក់">
-        {ordered.map((r) => {
-          const items = w ? orderItems(r) : weekItems(r);
-          // A long list shows its first lines and a button in the last row, so every card stays the same height until opened.
+        {ordered.map((r, k) => {
+          const items = orderItems(r);
+          // A card is as tall as its lines, up to SHOW of them. A longer list shows its first SHOW and a button under them;
+          // opened, every line is in a box SHOW lines tall that scrolls, and the button stays under the box to close it.
           // The button stays the same element when toggled, so keyboard focus stays on it.
-          let list = items;
-          if (items.length > SHOW) {
-            const isOpen = open.has(r.name);
-            const hidden = items.length - (SHOW - 1);
-            list = [
-              ...(isOpen ? items : items.slice(0, SHOW - 1)),
-              <li className="more" key="more">
-                <button type="button" className="more-btn" data-more={r.name} aria-expanded={isOpen} onClick={() => toggle(r.name)}>
-                  {isOpen ? "បង្ហាញតិចវិញ" : `មើលបន្ថែម · ${hidden} ទៀត`}
-                  <Icon name={isOpen ? "up" : "down"} size={16} />
-                </button>
-              </li>,
-            ];
-          }
-          if (!list.length) {
-            list = [
-              <li className="empty" key="empty">
-                {w ? "មិនមានការបញ្ជាទិញអាទិត្យនេះ" : "មិនមានការបញ្ជាទិញខែនេះ"}
-              </li>,
-            ];
-          }
+          const long = items.length > SHOW;
+          const isOpen = long && open.has(r.name);
+          const listId = `seller-lines-${k}`;
+          const list = !items.length
+            ? [
+                <li className="empty" key="empty">
+                  {w ? "មិនមានការបញ្ជាទិញអាទិត្យនេះ" : "មិនមានការបញ្ជាទិញខែនេះ"}
+                </li>,
+              ]
+            : long && !isOpen
+              ? items.slice(0, SHOW)
+              : items;
           return (
             <article className="card seller-card" key={r.name}>
               <header>
@@ -198,8 +223,40 @@ export default function SellersPage() {
                   <b style={{ fontSize: 15 }}>{r.name}</b>
                   <span className="sub">{`កូដ ${r.code} · ${r.orders} ការបញ្ជាទិញ`}</span>
                 </span>
+                <button
+                  type="button"
+                  className="more-btn detail-btn"
+                  data-detail={r.name}
+                  disabled={!r.orders}
+                  title="មើលកូដការបញ្ជាទិញ ហើយចម្លង"
+                  aria-label={`មើលលម្អិត ${r.name}`}
+                  onClick={() => setDetailOf(r.name)}
+                >
+                  <Icon name="eye" size={16} />
+                  លម្អិត
+                </button>
               </header>
-              <ul className="order-list">{list}</ul>
+              <ul className={`order-list${isOpen ? " is-open" : ""}`} id={listId} ref={(el) => capHeight(el, isOpen)}>
+                {list}
+              </ul>
+              {long && (
+                <div className="list-more">
+                  <button
+                    type="button"
+                    className="more-btn"
+                    data-more={r.name}
+                    aria-expanded={isOpen}
+                    aria-controls={listId}
+                    onClick={() => {
+                      toggle(r.name);
+                      if (!isOpen) scrollToHidden(listId);
+                    }}
+                  >
+                    {isOpen ? "បង្ហាញតិចវិញ" : `មើលបន្ថែម · ${items.length - SHOW} ទៀត`}
+                    <Icon name={isOpen ? "up" : "down"} size={16} />
+                  </button>
+                </div>
+              )}
               <dl>
                 <div>
                   <dt>ចំណេញសរុប</dt>
@@ -218,6 +275,8 @@ export default function SellersPage() {
           );
         })}
       </section>
+
+      <SellerDetailDialog detail={detail} onClose={() => setDetailOf(null)} />
 
       <div className="callout">
         <span className="muted">លុយនៅសល់របស់អ្នកលក់ម្នាក់ៗ ចូលទៅតារាងទូទាត់ប្រចាំអាទិត្យ ដើម្បីដក បូក និងប្តូរជាដុល្លារ។</span>

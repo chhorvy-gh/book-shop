@@ -6,6 +6,7 @@ import { downloadSales, EXPORT_ERROR } from "@/lib/export";
 import { BAD_SELLER_CODE, fmt } from "@/lib/format";
 import { STATUS, totals } from "@/lib/orders";
 import { martLabel } from "@/lib/periods";
+import { TRASH_NAME } from "@/lib/trash";
 import type { Mart, Order, Seller } from "@/lib/types";
 import { Icon } from "../icons";
 import { useSaleBook } from "../store";
@@ -139,7 +140,8 @@ export function SellerDialog(props: { open: boolean; name0: string; code0: strin
 
 // ---------- Edit / delete a mart ----------
 // «កែ Mart» renames the mart on screen or deletes it; Mart 1 and Mart 2 can only be renamed. Deleting a mart that has
-// orders asks first, saying how many orders in how many weeks go with it.
+// orders asks first, saying how many orders in how many weeks go with it. It goes to «បានលុបថ្មីៗ», where it can be
+// restored with its orders.
 
 const BAD_NAME = /[\\/?*[\]:"<>|]/; // characters an Excel tab or file name cannot hold
 
@@ -184,10 +186,10 @@ function MartForm({ id, onClose, onDone }: { id: string; onClose: () => void; on
     book.renameMart(id, n);
     onDone(label !== next ? `បានប្តូរឈ្មោះ ${label} → ${next}។` : "");
   }
-  async function remove() {
+  function remove() {
     setBusy(true);
-    await book.removeMart(id);
-    onDone(`បានលុប ${label}។`, true);
+    book.deleteMart(id);
+    onDone(`បានលុប ${label} · ស្តារវិញបាននៅទំព័រ «${TRASH_NAME}»។`, true);
   }
 
   return (
@@ -235,7 +237,7 @@ function MartForm({ id, onClose, onDone }: { id: string; onClose: () => void; on
               className="btn btn-danger-soft"
               style={{ marginRight: "auto" }}
               disabled={!stats}
-              onClick={() => (stats?.orders ? setConfirm(true) : void remove())}
+              onClick={() => (stats?.orders ? setConfirm(true) : remove())}
             >
               <Icon name="trash" size={16} />
               លុប Mart
@@ -251,13 +253,14 @@ function MartForm({ id, onClose, onDone }: { id: string; onClose: () => void; on
       ) : (
         <div className="stack" style={{ gap: 12 }}>
           <p className="alert alert-danger" style={{ margin: 0, fontSize: 14 }}>
-            លុប «{label}» និងការបញ្ជាទិញ {stats?.orders} ក្នុង {stats?.weeks} អាទិត្យ (លុយលក់ {fmt(stats?.sale ?? 0)})? លុបហើយ មិនអាចយកមកវិញបានទេ។
+            លុប «{label}» និងការបញ្ជាទិញ {stats?.orders} ក្នុង {stats?.weeks} អាទិត្យ (លុយលក់ {fmt(stats?.sale ?? 0)})? វាទៅនៅទំព័រ «{TRASH_NAME}» ·
+            ស្តារវិញបាន។
           </p>
           <div className="dialog-actions">
             <button type="button" className="btn btn-default" ref={noRef} onClick={() => setConfirm(false)}>
               ទេ ទុកវិញ
             </button>
-            <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void remove()}>
+            <button type="button" className="btn btn-danger" disabled={busy} onClick={remove}>
               លុបចោល
             </button>
           </div>
@@ -305,7 +308,8 @@ export function DeleteDialog({
           <div className="stack" style={{ gap: 4 }}>
             <span className="sub">{meta}</span>
             <h2 id="del-title">
-              លុបការបញ្ជាទិញ #{order.no} · {order.code}?
+              លុបការបញ្ជាទិញ #{order.no}
+              {order.code ? ` · ${order.code}` : ""}?
             </h2>
           </div>
           <dl className="totals">
@@ -334,6 +338,57 @@ export function DeleteDialog({
               ទេ ទុកវិញ
             </button>
             <button type="button" className="btn btn-danger" onClick={() => onYes(order)}>
+              <Icon name="trash" size={16} />
+              លុបចោល
+            </button>
+          </div>
+        </form>
+      )}
+    </Dialog>
+  );
+}
+
+// The ticked orders in the table, deleted together after one question, as the bin in a row asks for one.
+export function BulkDeleteDialog({ orders, meta, onClose, onYes }: { orders: Order[] | null; meta: string; onClose: () => void; onYes: () => void }) {
+  const noRef = useRef<HTMLButtonElement>(null);
+  const list = orders ?? [];
+  const codes = list.slice(0, 6).map((o) => o.code || `#${o.no}`).join(", ") + (list.length > 6 ? ` … +${list.length - 6}` : "");
+  return (
+    <Dialog open={!!orders} onClose={onClose} labelledBy="bulk-del-title" id="bulk-delete-dialog">
+      {orders && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onClose();
+          }}
+        >
+          <FocusOnOpen target={noRef} />
+          <div className="stack" style={{ gap: 4 }}>
+            <span className="sub">{meta}</span>
+            <h2 id="bulk-del-title">លុបការបញ្ជាទិញ {list.length}?</h2>
+          </div>
+          <dl className="totals">
+            <div>
+              <dt>កូដ</dt>
+              <dd>{codes}</dd>
+            </div>
+            <div>
+              <dt>លុយដើម</dt>
+              <dd>{fmt(list.reduce((a, o) => a + o.cost, 0))}</dd>
+            </div>
+            <div>
+              <dt>លុយលក់</dt>
+              <dd>{fmt(list.reduce((a, o) => a + o.sale, 0))}</dd>
+            </div>
+          </dl>
+          <p className="alert alert-danger" style={{ margin: 0, fontSize: 14 }}>
+            លុបហើយ មិនអាចយកមកវិញបានទេ។ បើការបញ្ជាទិញគ្រាន់តែមិនបានលក់ ប្តូរស្ថានភាពទៅ «បោះបង់» វិញ ដើម្បីទុកវាក្នុងតារាង។
+          </p>
+          <div className="dialog-actions">
+            <button type="submit" className="btn btn-default" ref={noRef}>
+              ទេ ទុកវិញ
+            </button>
+            <button type="button" className="btn btn-danger" onClick={onYes}>
               <Icon name="trash" size={16} />
               លុបចោល
             </button>

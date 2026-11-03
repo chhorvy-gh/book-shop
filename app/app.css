@@ -39,8 +39,89 @@
 .save-error { position: fixed; z-index: 30; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(560px, calc(100vw - 32px)); }
 .save-error .banner { background: var(--surface); box-shadow: var(--shadow-phone); border: 1px solid var(--danger); color: var(--danger-soft-fg); }
 
+/* ---------- Seller cards: the detail button at the right of the name, and the dialog it opens ---------- */
+.seller-card header .stack { flex: 1 1 auto; }
+.seller-card .detail-btn { flex: none; font-size: 13px; }
+.seller-card .detail-btn:disabled { color: var(--muted); background: transparent; cursor: default; }
+/* A whole month's orders in several weeks: each week's name over its orders. */
+.seller-card .order-list li.week-head { justify-content: flex-start; align-items: baseline; padding-top: 10px; font-weight: 600; }
+.seller-detail-lines {
+  max-height: min(50vh, 420px); overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.seller-detail-lines section { display: flex; flex-direction: column; gap: 6px; }
+.dialog .seller-detail-lines .order-list { max-height: none; overflow: visible; font-size: 14px; }
+.seller-detail-lines .order-list li { justify-content: flex-start; }
+
+/* ---------- Recently deleted ---------- */
+.trash-list { margin: 0; padding: 0; list-style: none; }
+.trash-list li { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-top: 1px solid var(--sep); }
+.trash-list li:first-child { border-top: 0; padding-top: 0; }
+.trash-list li:last-child { padding-bottom: 0; }
+.trash-list .stack { flex: 1 1 auto; }
+.trash-list .avatar { background: var(--default-soft); color: var(--muted); }
+.trash-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+@media (max-width: 640px) {
+  .trash-list li { flex-wrap: wrap; }
+  .trash-actions { width: 100%; justify-content: flex-start; padding-left: 48px; }
+}
+
 /* ---------- Account page ---------- */
 .member-list { margin: 0; padding: 0; list-style: none; }
 .member-list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--sep); }
 .member-list li:first-child { border-top: 0; }
 .member-list .stack { flex: 1 1 auto; }
+
+/* ---------- Date boxes and their calendar (components/DateField.tsx) ---------- */
+.date-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; cursor: pointer; }
+.date-trigger .icon { color: var(--muted); }
+.date-trigger:hover { background: var(--default); }
+.date-trigger[aria-expanded="true"] { box-shadow: var(--ring); }
+.date-trigger[data-invalid] { box-shadow: 0 0 0 2px var(--danger); }
+.date-pop {
+  inset: auto; margin: 0; padding: 12px; border: 0; border-radius: 20px;
+  width: 296px; max-width: calc(100vw - 16px); overflow: visible;
+  background: var(--surface); color: var(--fg); font-size: 14px; font-weight: 400; line-height: 1.4;
+  box-shadow: 0 0 0 1px var(--sep), 0 16px 40px rgba(0, 0, 0, 0.18);
+}
+.date-pop:popover-open { animation: date-pop-in 0.12s ease-out; }
+@keyframes date-pop-in { from { opacity: 0; translate: 0 -4px; } }
+@media (prefers-reduced-motion: reduce) { .date-pop:popover-open { animation: none; } }
+.date-pop:focus { outline: none; }
+.cal-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 0 8px; }
+.cal-title { font-size: 15px; font-weight: 600; }
+.cal-nav {
+  width: 32px; height: 32px; flex: none; display: grid; place-items: center;
+  border: 0; border-radius: 9999px; background: transparent; color: var(--fg); cursor: pointer;
+}
+.cal-nav:hover { background: var(--default-soft); }
+.cal-grid { display: flex; flex-direction: column; gap: 2px; }
+.cal-row { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-wd { height: 28px; display: grid; place-items: center; font-size: 12px; font-weight: 500; color: var(--muted); }
+.cal-cell { height: 36px; display: grid; place-items: center; }
+.cal-cell button {
+  position: relative; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 9999px;
+  background: transparent; color: inherit; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer;
+}
+.cal-cell button:hover { background: var(--default-soft); }
+.cal-cell.is-out { color: var(--muted); }
+/* The week being made: a soft band from its first to its last day, both ends filled. */
+.cal-cell.in-range { background: var(--accent-soft); color: var(--accent-soft-fg); }
+.cal-cell.range-start, .cal-row > .cal-cell.in-range:first-child { border-start-start-radius: 9999px; border-end-start-radius: 9999px; }
+.cal-cell.range-end, .cal-row > .cal-cell.in-range:last-child { border-start-end-radius: 9999px; border-end-end-radius: 9999px; }
+.cal-cell.in-range button:hover { background: var(--accent-soft); }
+.cal-cell.is-today { color: var(--accent-soft-fg); font-weight: 700; }
+.cal-cell.is-today button::after {
+  content: ""; position: absolute; left: 50%; bottom: 4px; width: 4px; height: 4px; margin-left: -2px;
+  border-radius: 50%; background: currentColor;
+}
+.cal-cell.is-picked button { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.cal-cell.is-picked button:hover { background: var(--accent-hover); }
+.cal-cell.is-off button { opacity: 0.35; cursor: not-allowed; }
+.cal-cell.is-off button:hover { background: transparent; }
+.cal-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-top: 8px; padding: 10px 4px 0; border-top: 1px solid var(--sep);
+}
+.cal-foot .field-link { font-size: 13px; }
+.cal-foot .field-link:disabled { color: var(--muted); cursor: not-allowed; text-decoration: none; }

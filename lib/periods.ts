@@ -250,5 +250,6 @@ export function emptyState(): SaleBookState {
     rate: 0.00068,
     share: 25,
     loaded: [],
+    trash: { months: [], weeks: [], marts: [] },
   };
 }

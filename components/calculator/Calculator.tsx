@@ -5,6 +5,7 @@
 // The reading and matching of the lists is in lib/logic/calculator.ts.
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { copyText } from "@/lib/clipboard";
 import { fmt, latinDigits, parseMoney, usd } from "@/lib/format";
 import { combine, listText, markupOf, parse, qtyText, saleOf, totals, writtenCheck, type ItemLine, type Pricing } from "@/lib/logic/calculator";
 import { Icon } from "../icons";
@@ -47,22 +48,6 @@ function saveDraft(d: Draft) {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
   } catch {
     /* draft is optional */
-  }
-}
-
-// Clipboard first; an old browser or a page not on https gets the hidden-textarea copy.
-async function copyText(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const t = document.createElement("textarea");
-    t.value = text;
-    t.style.position = "fixed";
-    t.style.opacity = "0";
-    document.body.appendChild(t);
-    t.select();
-    document.execCommand("copy");
-    t.remove();
   }
 }
 

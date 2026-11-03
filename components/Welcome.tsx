@@ -2,12 +2,15 @@
 
 // A shop with no month yet: make the first month (with its first week), or load the mockup's sample week to try things.
 import { useState } from "react";
+import Link from "next/link";
+import { monthLabel } from "@/lib/periods";
+import { TRASH_NAME } from "@/lib/trash";
 import MonthDialog from "./dialogs/MonthDialog";
 import { Icon } from "./icons";
 import { useSaleBook } from "./store";
 
 export default function Welcome() {
-  const { loadSample } = useSaleBook();
+  const { state, loadSample } = useSaleBook();
   const [monthOpen, setMonthOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   return (
@@ -62,6 +65,14 @@ export default function Welcome() {
             </a>
           </li>
         </ol>
+        {state.trash.months.length > 0 && (
+          <Link className="alert alert-warning" href="/trash" style={{ fontSize: 14 }}>
+            <Icon name="trash" size={18} />
+            <span>
+              {`${state.trash.months.map((t) => monthLabel(t.month)).join(", ")} នៅក្នុង «${TRASH_NAME}» · ចុចទីនេះ ដើម្បីស្តារវិញ`}
+            </span>
+          </Link>
+        )}
       </section>
       <MonthDialog open={monthOpen} onClose={() => setMonthOpen(false)} onDone={() => setMonthOpen(false)} />
     </>

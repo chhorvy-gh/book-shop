@@ -4,6 +4,8 @@
 // so a month always has a week to type orders into (the mockup's #month-dialog).
 import { useState } from "react";
 import { MONTH_NAMES, bookMonths, dayAfter, findMonth, monthId, monthLabel, shiftDay, weekRange } from "@/lib/periods";
+import { TRASH_NAME, trashedMonth } from "@/lib/trash";
+import { DateField } from "../DateField";
 import { useSaleBook } from "../store";
 import { Dialog } from "../ui";
 import { followStart, readDates } from "./dates";
@@ -42,6 +44,8 @@ function MonthForm({ onClose, onDone }: { onClose: () => void; onDone: (text: st
     if (!Number.isInteger(year) || year < 2000 || year > 2100) return setError({ text: "បញ្ចូលឆ្នាំ ឧ. 2026", field: "y" });
     const existing = findMonth(state, monthId({ y: year, m }));
     if (existing) return setError({ text: `${monthLabel(existing)} មានរួចហើយ · ជ្រើសវានៅខាងលើ`, field: "m" });
+    const held = trashedMonth(state, monthId({ y: year, m }));
+    if (held) return setError({ text: `${monthLabel(held.month)} នៅក្នុង «${TRASH_NAME}» · ស្តារវិញ ឬលុបវាជារៀងរហូតសិន`, field: "m" });
     const dates = readDates(state, from, to);
     if ("error" in dates) return setError({ text: dates.error, field: dates.field });
     const id = await book.addMonth(year, m, { no: 1, ...dates });
@@ -98,38 +102,33 @@ function MonthForm({ onClose, onDone }: { onClose: () => void; onDone: (text: st
         </label>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <label className="field" htmlFor="month-date">
-          អាទិត្យទី 1 ចាប់ពីថ្ងៃ
-          <input
-            className="input num"
-            id="month-date"
-            type="date"
-            value={from}
-            aria-invalid={bad("from")}
-            aria-describedby="month-error"
-            onChange={(e) => {
-              setFrom(e.target.value);
-              setTo(followStart(e.target.value, to, endPicked));
-              setError(null);
-            }}
-          />
-        </label>
-        <label className="field" htmlFor="month-end">
-          ដល់ថ្ងៃ
-          <input
-            className="input num"
-            id="month-end"
-            type="date"
-            value={to}
-            aria-invalid={bad("to")}
-            aria-describedby="month-error"
-            onChange={(e) => {
-              setTo(e.target.value);
-              setEndPicked(true);
-              setError(null);
-            }}
-          />
-        </label>
+        <DateField
+          id="month-date"
+          label="អាទិត្យទី 1 ចាប់ពីថ្ងៃ"
+          value={from}
+          range={{ from, to }}
+          invalid={bad("from")}
+          describedBy="month-error"
+          onChange={(v) => {
+            setFrom(v);
+            setTo(followStart(v, to, endPicked));
+            setError(null);
+          }}
+        />
+        <DateField
+          id="month-end"
+          label="ដល់ថ្ងៃ"
+          value={to}
+          min={from}
+          range={{ from, to }}
+          invalid={bad("to")}
+          describedBy="month-error"
+          onChange={(v) => {
+            setTo(v);
+            setEndPicked(true);
+            setError(null);
+          }}
+        />
       </div>
       {error && (
         <span className="field-error" id="month-error" role="alert">

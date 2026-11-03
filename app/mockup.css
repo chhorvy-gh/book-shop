@@ -261,6 +261,32 @@ button.chip:hover { filter: brightness(0.96); }
 .input:disabled { color: var(--muted); cursor: not-allowed; }
 .input[aria-invalid="true"] { box-shadow: 0 0 0 2px var(--danger); }
 .input-lg { height: 52px; font-size: 18px; }
+/* Drop-down lists in the app's look (rounded card, soft highlight, tick on the picked line) where the browser can
+   style them (customizable <select>); other browsers keep their own list. */
+@supports (appearance: base-select) {
+  .select, .select::picker(select) { appearance: base-select; }
+  .select { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .select::picker-icon {
+    content: ""; width: 16px; height: 16px; flex: none; margin-inline-start: auto; color: var(--muted);
+    background: currentColor; transition: rotate 0.15s ease;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  .select:open::picker-icon { rotate: 180deg; }
+  .select::picker(select) {
+    margin-block: 6px; padding: 6px; border: 0; border-radius: 16px; max-height: min(360px, 60vh); overflow-y: auto;
+    background: var(--surface); color: var(--fg);
+    box-shadow: 0 0 0 1px var(--sep), 0 12px 32px rgba(0, 0, 0, 0.16);
+  }
+  .select option { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 6px 12px; border-radius: 10px; font-weight: 500; }
+  .select option:hover, .select option:focus-visible { background: var(--default-soft); outline: none; }
+  .select option:checked { background: var(--accent-soft); color: var(--accent-soft-fg); font-weight: 600; }
+  .select option::checkmark { order: 1; margin-inline-start: auto; color: var(--accent); }
+  .select option:not(:checked)::checkmark { visibility: hidden; }
+  /* The month pill: the list opens under the whole pill, its arrow in the text colour. */
+  .period-month { anchor-name: --period-month; }
+  .period-month .select::picker(select) { position-anchor: --period-month; min-width: anchor-size(width); }
+  .period-month .select::picker-icon { color: inherit; }
+}
 /* Calculator: numbered how-to steps and the two list boxes. */
 .howto {
   margin: 0; padding: 12px 16px; list-style: none; border-radius: 16px;
@@ -377,6 +403,18 @@ table.data tbody tr.is-new { background: var(--accent-soft); }
 table.data tbody tr.is-cancelled td { text-decoration: line-through; color: var(--muted); }
 table.data tbody tr.is-cancelled td:nth-last-child(-n+2) { text-decoration: none; }
 table.data tbody tr.is-done { opacity: 0.6; }
+/* A tick column: ticked rows stand out, and a bar above the table says how many are ticked and acts on all of them. */
+table.data th.cell-check, table.data td.cell-check { padding-right: 0; text-overflow: clip; }
+.row-check { width: 16px; height: 16px; margin: 0; vertical-align: middle; accent-color: var(--accent); cursor: pointer; }
+.row-check:disabled { cursor: default; }
+table.data tbody tr.is-selected { background: var(--accent-soft); }
+.bulk-bar {
+  padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  background: var(--accent-soft); border-bottom: 1px solid var(--sep);
+}
+.bulk-bar .strong { color: var(--accent-soft-fg); }
+.bulk-bar .spacer { flex: 1 1 auto; }
+.btn.btn-sm { min-height: 32px; padding: 4px 14px; font-size: 13px; gap: 6px; }
 table.data tfoot td { padding: 12px; background: var(--surface-2); border-top: 1px solid var(--sep-2); font-weight: 700; }
 table.data td.cell { padding: 4px 6px; }
 table.data .empty td { padding: 32px 20px; text-align: center; color: var(--muted); }
@@ -540,10 +578,12 @@ table.data tbody tr.is-collected .cell-input:not(.note) { color: var(--success-s
 .order-list li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--sep); }
 .order-list li:last-child { border-bottom: 0; }
 .order-list .no { width: 40px; flex: none; color: var(--muted); }
-/* Seller cards grow when opened instead of scrolling inside. */
-.seller-card .order-list { height: auto; min-height: 220px; overflow: visible; }
-.seller-card .order-list .empty { min-height: 220px; box-sizing: border-box; justify-content: center; align-items: center; color: var(--muted); }
-.order-list .more { justify-content: center; padding: 4px 0; }
+/* Seller cards are as tall as their lines, ten at most. An opened list keeps the height of ten lines (SellersPage
+   sets it) and scrolls inside, with its "more" button kept under it. */
+.seller-card .order-list { height: auto; max-height: none; overflow: visible; }
+.seller-card .order-list.is-open { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.seller-card .order-list .empty { padding: 20px 0; justify-content: center; align-items: center; color: var(--muted); }
+.seller-card .list-more { display: flex; justify-content: center; padding: 4px 18px; border-bottom: 1px solid var(--sep); }
 .more-btn {
   display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border: 0; border-radius: 9999px;
   background: transparent; color: var(--accent-soft-fg); font: inherit; font-weight: 500; cursor: pointer;

@@ -4,7 +4,9 @@
 // mart) and for changing the dates of the week on screen («កែថ្ងៃ»; its orders stay as they are) — the mockup's #week-dialog.
 import { useState } from "react";
 import { dayAfter, flipDate, martList, monthId, monthLabel, shiftDay, weekEnd, weekLabel, weekRange } from "@/lib/periods";
+import { TRASH_NAME, trashedWeek } from "@/lib/trash";
 import type { Month, Week } from "@/lib/types";
+import { DateField } from "../DateField";
 import { useSaleBook } from "../store";
 import { Dialog } from "../ui";
 import { daysText, followStart, readDates } from "./dates";
@@ -17,9 +19,11 @@ function WeekForm({ month, editing, onClose, onDone }: { month: Month; editing: 
   const [start] = useState(() => {
     if (editing) return { no: String(editing.no), from: flipDate(editing.date), to: flipDate(weekEnd(editing)) };
     const last = month.weeks[month.weeks.length - 1];
-    // The next number the month does not have yet (1–5), starting the day after the last week ends.
+    // The next number the month does not have yet (1–5; a deleted week's number is still taken), starting the day
+    // after the last week ends. The sales page only opens this with a number free.
+    const taken = (n: number) => month.weeks.some((w) => w.no === n) || !!trashedWeek(state, month, n);
     let no = last ? last.no + 1 : 1;
-    while (no > 5 || month.weeks.some((w) => w.no === no)) no = no > 5 ? 1 : no + 1;
+    for (let tries = 0; tries < 6 && (no > 5 || taken(no)); tries++) no = no > 5 ? 1 : no + 1;
     const from = last ? dayAfter(last) : `${month.y}-${pad(month.m)}-01`;
     return { no: String(no), from, to: shiftDay(from, 6) };
   });
@@ -44,6 +48,10 @@ function WeekForm({ month, editing, onClose, onDone }: { month: Month; editing: 
     if (!Number.isInteger(n) || n < 1 || n > 5) return setError({ text: "បញ្ចូលអាទិត្យទី 1 ដល់ 5", field: "no" });
     const same = month.weeks.find((w) => w.no === n);
     if (same) return setError({ text: `${weekLabel(same)} មានរួចហើយក្នុង${monthLabel(month)}`, field: "no" });
+    const held = trashedWeek(state, month, n);
+    if (held) {
+      return setError({ text: `${weekLabel(held.week)} នៅក្នុង «${TRASH_NAME}» · ស្តារវិញ ឬលុបវាជារៀងរហូតសិន ដើម្បីប្រើលេខនេះ`, field: "no" });
+    }
     const dates = readDates(state, from, to);
     if ("error" in dates) return setError({ text: dates.error, field: dates.field });
     const week: Week = { no: n, ...dates };
@@ -86,38 +94,33 @@ function WeekForm({ month, editing, onClose, onDone }: { month: Month; editing: 
           <span>ចំនួនថ្ងៃ</span>
           <span className="readout">{daysText(from, to)}</span>
         </div>
-        <label className="field" htmlFor="week-date">
-          ចាប់ពីថ្ងៃ
-          <input
-            className="input num"
-            id="week-date"
-            type="date"
-            value={from}
-            aria-invalid={bad("from")}
-            aria-describedby="week-error"
-            onChange={(e) => {
-              setFrom(e.target.value);
-              setTo(followStart(e.target.value, to, endPicked));
-              setError(null);
-            }}
-          />
-        </label>
-        <label className="field" htmlFor="week-end">
-          ដល់ថ្ងៃ
-          <input
-            className="input num"
-            id="week-end"
-            type="date"
-            value={to}
-            aria-invalid={bad("to")}
-            aria-describedby="week-error"
-            onChange={(e) => {
-              setTo(e.target.value);
-              setEndPicked(true);
-              setError(null);
-            }}
-          />
-        </label>
+        <DateField
+          id="week-date"
+          label="ចាប់ពីថ្ងៃ"
+          value={from}
+          range={{ from, to }}
+          invalid={bad("from")}
+          describedBy="week-error"
+          onChange={(v) => {
+            setFrom(v);
+            setTo(followStart(v, to, endPicked));
+            setError(null);
+          }}
+        />
+        <DateField
+          id="week-end"
+          label="ដល់ថ្ងៃ"
+          value={to}
+          min={from}
+          range={{ from, to }}
+          invalid={bad("to")}
+          describedBy="week-error"
+          onChange={(v) => {
+            setTo(v);
+            setEndPicked(true);
+            setError(null);
+          }}
+        />
       </div>
       {error && (
         <span className="field-error" id="week-error" role="alert">

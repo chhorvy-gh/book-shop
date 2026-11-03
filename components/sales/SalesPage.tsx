@@ -7,9 +7,11 @@ import { flushSync } from "react-dom";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { fmt, latinDigits, margin, prefixOf, signed } from "@/lib/format";
-import { NEXT_STATUS, findCode, nextCodeNumber, totals } from "@/lib/orders";
+import { NEXT_STATUS, STATUS, findCode, nextCodeNumber, totals } from "@/lib/orders";
 import { monthLabel, pickedWeek, weekKey, weekLabel, weekMarts, weekRange } from "@/lib/periods";
+import { TRASH_NAME, trashedWeeks } from "@/lib/trash";
 import type { InvoiceData, Month, Order, Seller, Week } from "@/lib/types";
+import DeletePeriodDialog, { type PeriodTarget } from "../dialogs/DeletePeriodDialog";
 import MonthDialog from "../dialogs/MonthDialog";
 import WeekDialog from "../dialogs/WeekDialog";
 import { Icon } from "../icons";
@@ -20,7 +22,7 @@ import EditDialog, { type OrderEdit } from "./EditDialog";
 import Invoice from "./Invoice";
 import OrdersTable, { PAGE_SIZE, type Filter, type Originals } from "./OrdersTable";
 import SellerCombo from "./SellerCombo";
-import { DeleteDialog, ExportDialog, MartDialog, SellerDialog, type ExportKind } from "./SalesDialogs";
+import { BulkDeleteDialog, DeleteDialog, ExportDialog, MartDialog, SellerDialog, type ExportKind } from "./SalesDialogs";
 
 // The page title, which becomes the file name when an invoice is saved as PDF.
 const setDocTitle = (title: string) => {
@@ -41,6 +43,8 @@ export default function SalesPage() {
   });
   const [weekDialog, setWeekDialog] = useState<{ open: boolean; editing: Week | null }>({ open: false, editing: null });
   const [monthOpen, setMonthOpen] = useState(false);
+  // The month (week null) or week being deleted.
+  const [deleting, setDeleting] = useState<PeriodTarget | null>(null);
   // Bumped after a new week or month is made, so the form takes the focus for the first order.
   const [focusKey, setFocusKey] = useState(0);
 
@@ -55,8 +59,14 @@ export default function SalesPage() {
   }, []);
 
   function newWeek() {
-    if (month.weeks.length >= 5) {
-      note.show(`${monthLabel(month)} មាន 5 អាទិត្យគ្រប់ហើយ · ចុច «ខែថ្មី» ដើម្បីចាប់ផ្តើមខែបន្ទាប់។`);
+    // Weeks are numbered 1–5, and a deleted week keeps its number until it is deleted for good.
+    const held = trashedWeeks(state, month);
+    if (month.weeks.length + held.length >= 5) {
+      note.show(
+        held.length
+          ? `${monthLabel(month)} ប្រើលេខអាទិត្យ 1–5 អស់ហើយ · ${held.map((t) => weekLabel(t.week)).join(", ")} នៅក្នុង «${TRASH_NAME}» · លុបវាជារៀងរហូតពីទីនោះ ដើម្បីប្រើលេខវាវិញ ឬចុច «ខែថ្មី»។`
+          : `${monthLabel(month)} មាន 5 អាទិត្យគ្រប់ហើយ · ចុច «ខែថ្មី» ដើម្បីចាប់ផ្តើមខែបន្ទាប់។`,
+      );
       return;
     }
     setWeekDialog({ open: true, editing: null });
@@ -78,6 +88,10 @@ export default function SalesPage() {
             <Icon name="plus" size={16} />
             ខែថ្មី
           </button>
+          <button type="button" className="btn btn-outline" id="delete-month" onClick={() => setDeleting({ month, week: null })}>
+            <Icon name="trash" size={16} />
+            លុបខែ
+          </button>
           <span className="period-sep" aria-hidden="true" />
         </>
       }
@@ -92,6 +106,12 @@ export default function SalesPage() {
         <Icon name="plus" size={16} />
         អាទិត្យថ្មី
       </button>
+      {week && (
+        <button type="button" className="btn btn-outline" id="delete-week" onClick={() => setDeleting({ month, week })}>
+          <Icon name="trash" size={16} />
+          លុបអាទិត្យ
+        </button>
+      )}
     </PeriodBar>
   );
 
@@ -114,6 +134,14 @@ export default function SalesPage() {
       )}
       <WeekDialog open={weekDialog.open} month={month} editing={weekDialog.editing} onClose={() => setWeekDialog({ open: false, editing: null })} onDone={periodDone} />
       <MonthDialog open={monthOpen} onClose={() => setMonthOpen(false)} onDone={periodDone} />
+      <DeletePeriodDialog
+        target={deleting}
+        onClose={() => setDeleting(null)}
+        onDone={(text) => {
+          setDeleting(null);
+          note.show(text);
+        }}
+      />
     </>
   );
 }
@@ -153,6 +181,10 @@ function WeekSheet({
   );
   const [editing, setEditing] = useState<Order | null>(null);
   const [deleting, setDeleting] = useState<Order | null>(null);
+  // Ticked rows. They clear when the mart, filter or search changes, so a bulk action only reaches orders on screen.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [bulkDeleting, setBulkDeleting] = useState<Order[] | null>(null);
+  const clearTicks = () => setSelected(new Set());
   const [martOpen, setMartOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportKind, setExportKind] = useState<ExportKind>("full");
@@ -172,6 +204,10 @@ function WeekSheet({
   const autoCode = sellerCode + nextCodeNumber(marts, sellerCode, state.codeFloor[key] ?? {});
   const typedCode = latinDigits(code.trim());
   const dup = codeEdited && typedCode ? findCode(marts, typedCode) : null;
+  // A code typed that an order of the week already has: the form puts its amounts into that order instead of adding
+  // one (e.g. an order made with its code first, its prices brought later from the calculator). Not a cancelled one.
+  const fill = dup && dup.order.status !== "x" ? dup : null;
+  const fillName = fill ? `#${fill.no}${fill.martId !== mart.id ? ` · ${fill.mart}` : ""}` : "";
   const unknown = codeEdited && typedCode && !names.has(prefixOf(typedCode)) ? prefixOf(typedCode) : "";
   const saleNum = parseFloat(sale);
   const preview = isNaN(saleNum) ? null : saleNum - (parseFloat(cost) || 0);
@@ -190,14 +226,20 @@ function WeekSheet({
     setFilter("all");
     setQuery("");
     setPage(0);
+    clearTicks();
     note.hide();
   }
 
   function addOrder(e: React.FormEvent) {
     e.preventDefault();
     const finalCode = typedCode || autoCode;
-    if (findCode(marts, finalCode)) {
-      codeRef.current?.focus();
+    const found = findCode(marts, finalCode);
+    if (found) {
+      if (found.order.status === "x") {
+        codeRef.current?.focus();
+        return;
+      }
+      fillOrder(found.order, found.martId);
       return;
     }
     // Prices are optional here: an empty box adds the order at 0, to fill in later in the table.
@@ -215,6 +257,38 @@ function WeekSheet({
     setCodeEdited(false);
     costRef.current?.focus();
     requestAnimationFrame(() => document.getElementById(`order-${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+  }
+
+  // Puts the typed amounts into an order that already has the code; a box left empty keeps the order's amount. The table
+  // then shows that order, marked like a new one, with the changed cells saying what they were.
+  function fillOrder(o: Order, martId: string) {
+    const patch: Partial<Pick<Order, "cost" | "sale">> = {};
+    if (cost.trim() !== "") patch.cost = parseFloat(cost) || 0;
+    if (sale.trim() !== "") patch.sale = saleNum || 0;
+    if (!("cost" in patch) && !("sale" in patch)) {
+      costRef.current?.focus();
+      return;
+    }
+    book.updateOrder(o.id, patch);
+    const list = marts.find((m) => m.id === martId)?.orders ?? [];
+    if (martId !== mart.id) setSheet(martId);
+    setNewId(o.id);
+    setFilter("all");
+    setQuery("");
+    setPage(Math.floor(Math.max(0, list.findIndex((x) => x.id === o.id)) / PAGE_SIZE));
+    clearTicks();
+    const was = (n: number) => (n ? fmt(n) : "0");
+    const parts = [
+      "cost" in patch ? `លុយដើម ${was(o.cost)} → ${fmt(patch.cost ?? 0)}` : "",
+      "sale" in patch ? `លុយលក់ ${was(o.sale)} → ${fmt(patch.sale ?? 0)}` : "",
+    ].filter(Boolean);
+    note.show(`បានដាក់ចូលការបញ្ជាទិញ #${o.no} · ${o.code} · ${parts.join(" · ")}។`);
+    setCost("");
+    setSale("");
+    setCode("");
+    setCodeEdited(false);
+    costRef.current?.focus();
+    requestAnimationFrame(() => document.getElementById(`order-${o.id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   }
 
   function sellerAdded(s: Seller, fromCode: boolean) {
@@ -238,7 +312,29 @@ function WeekSheet({
     book.deleteOrder(o.id);
     setDeleting(null);
     setEditing(null);
-    note.show(`បានលុបការបញ្ជាទិញ #${o.no} · ${o.code}។`);
+    note.show(`បានលុបការបញ្ជាទិញ #${o.no}${o.code ? ` · ${o.code}` : ""}។`);
+  }
+  // The bar above the table: every ticked order at once, each saved as its own write like a change made in its row.
+  function tick(ids: string[], on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
+      return next;
+    });
+  }
+  function bulkStatus(orders: Order[], status: "p" | "u") {
+    orders.forEach((o) => {
+      if (o.status !== status) patch(o, { status });
+    });
+    clearTicks();
+    note.show(`បានប្តូរ ${orders.length} ការបញ្ជាទិញ ទៅ «${STATUS[status].label}»។`);
+  }
+  function confirmBulkDelete() {
+    const list = bulkDeleting ?? [];
+    list.forEach((o) => book.deleteOrder(o.id));
+    setBulkDeleting(null);
+    clearTicks();
+    note.show(`បានលុបការបញ្ជាទិញ ${list.length}។`);
   }
   function newMart() {
     const id = book.addMart();
@@ -252,7 +348,7 @@ function WeekSheet({
       setInvoice({ no: o.no, code: o.code, seller: names.get(prefixOf(o.code)) ?? "", mart: mart.label, period: `${weekLabel(week)} · ${range}`, sale: o.sale, status: o.status, items: o.items }),
     );
     titleBefore.current = document.title;
-    setDocTitle(`វិក្កយបត្រ #${o.no} ${o.code}`);
+    setDocTitle(`វិក្កយបត្រ #${o.no}${o.code ? ` ${o.code}` : ""}`);
     window.print();
   }
   useEffect(() => {
@@ -343,7 +439,7 @@ function WeekSheet({
               autoComplete="off"
               spellCheck={false}
               aria-describedby="code-hint"
-              aria-invalid={dup ? true : undefined}
+              aria-invalid={dup && !fill ? true : undefined}
               value={codeEdited ? code : autoCode}
               onChange={(e) => {
                 const v = latinDigits(e.target.value.trim());
@@ -357,9 +453,14 @@ function WeekSheet({
                 if (!code.trim()) setCodeEdited(false);
               }}
             />
-            {dup ? (
+            {fill ? (
+              <span className="sub t-accent" id="code-hint">
+                {`ការបញ្ជាទិញ #${fill.no} ${fill.mart} មានកូដនេះ · លុយដែលវាយ នឹងដាក់ចូលវា`}
+                {fill.order.cost || fill.order.sale ? ` (ជំនួស ${fmt(fill.order.cost)} / ${fmt(fill.order.sale)})` : ""}
+              </span>
+            ) : dup ? (
               <span className="field-error" id="code-hint">
-                កូដនេះមានរួចហើយ · #{dup.no} {dup.mart}
+                កូដនេះមានរួចហើយ · #{dup.no} {dup.mart} · បោះបង់
               </span>
             ) : unknown ? (
               <span className="field-error t-warning" id="code-hint">
@@ -387,7 +488,7 @@ function WeekSheet({
           <div className="field">
             <span aria-hidden="true">&nbsp;</span>
             <button type="submit" className="btn btn-primary">
-              បន្ថែមការបញ្ជាទិញ
+              {fill ? `ដាក់ចូល ${fillName}` : "បន្ថែមការបញ្ជាទិញ"}
             </button>
           </div>
         </div>
@@ -403,11 +504,13 @@ function WeekSheet({
           onFilter={(f) => {
             setFilter(f);
             setPage(0);
+            clearTicks();
           }}
           query={query}
           onQuery={(q) => {
             setQuery(q);
             setPage(0);
+            clearTicks();
           }}
           page={page}
           onPage={setPage}
@@ -417,6 +520,11 @@ function WeekSheet({
           onEdit={setEditing}
           onPrint={printInvoice}
           onDelete={setDeleting}
+          selected={selected}
+          onTick={tick}
+          onClearTicks={clearTicks}
+          onBulkStatus={bulkStatus}
+          onBulkDelete={setBulkDeleting}
         />
 
         <aside className="grow-side">
@@ -489,6 +597,7 @@ function WeekSheet({
         onPrint={(edit) => editing && printInvoice({ ...editing, ...edit })}
       />
       <DeleteDialog order={deleting} meta={meta} seller={deleting ? (names.get(prefixOf(deleting.code)) ?? "") : ""} onClose={() => setDeleting(null)} onYes={confirmDelete} />
+      <BulkDeleteDialog orders={bulkDeleting} meta={meta} onClose={() => setBulkDeleting(null)} onYes={confirmBulkDelete} />
       <SellerDialog
         open={sellerDialog.open}
         name0={sellerDialog.name}

@@ -12,7 +12,8 @@ import type { MemberDoc, MonthDoc, NoteDoc, OrderDoc, SettingsDoc, SettlementDoc
 import { firebase } from "@/lib/firebase";
 import { bookMonths, emptyState, isLoaded, monthId, monthPayout, picked } from "@/lib/periods";
 import { loadSample } from "@/lib/sample";
-import type { Note, Order, PayoutEntry, SaleBookState, Seller, SettlementRow, Week } from "@/lib/types";
+import { ordersOf } from "@/lib/trash";
+import type { Note, Order, PayoutEntry, SaleBookState, Seller, SettlementRow, TrashRef, Week } from "@/lib/types";
 
 export type Role = "owner" | "member";
 // locked = signed in, but the database refuses to say who is a member (its security rules are not published yet).
@@ -50,12 +51,23 @@ export interface SaleBook {
   // Keeps each seller's weekly payouts on the month, so the month's history no longer needs its orders.
   closeMonth: (monthId: string) => void;
 
+  // ----- «បានលុបថ្មីៗ» (recently deleted) -----
+  // Deleting a month, a week or a mart moves it there, with its orders, notes and payouts; restoring brings it all back.
+  // Mart 1 and Mart 2 stay; another mart goes with its orders in every week.
+  deleteMonth: (monthId: string) => void;
+  deleteWeek: (monthId: string, no: number) => void;
+  deleteMart: (id: string) => void;
+  restore: (ref: TrashRef) => void;
+  // Removes it and everything it holds for good (asks the server, so it fails offline and shows why); false = failed.
+  purge: (ref: TrashRef) => Promise<boolean>;
+  // How many orders it holds, cancelled ones too (asks the server).
+  trashOrders: (ref: TrashRef) => Promise<number>;
+
   // ----- Marts, sellers, rate -----
-  // Returns the new mart's id: the next number up, skipping one whose "Mart N" is already another mart's name.
+  // Returns the new mart's id: the next number up (deleted marts' numbers too, so they can come back), skipping one
+  // whose "Mart N" is already another mart's name.
   addMart: () => string;
   renameMart: (id: string, name: string) => void;
-  // Mart 1 and Mart 2 stay; another mart goes with its orders in every week.
-  removeMart: (id: string) => Promise<void>;
   // A mart's orders over every week (asks the server): count incl. cancelled, weeks, sale excl. cancelled.
   martStats: (id: string) => Promise<{ orders: number; weeks: number; sale: number }>;
   addSeller: (seller: Seller) => void;
@@ -184,8 +196,13 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
     return () => stops.forEach((stop) => stop());
   }, [member]);
 
+  // The months in the book (deleted ones left out), oldest first.
   const monthList = useMemo(
-    () => (months ?? []).map((d) => ({ id: d.id, mo: dbw.toMonth(d.data) })).sort((a, b) => a.mo.y - b.mo.y || a.mo.m - b.mo.m),
+    () =>
+      (months ?? [])
+        .filter((d) => !d.data.deleted)
+        .map((d) => ({ id: d.id, mo: dbw.toMonth(d.data) }))
+        .sort((a, b) => a.mo.y - b.mo.y || a.mo.m - b.mo.m),
     [months],
   );
 
@@ -223,19 +240,42 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
     if (settings) {
       s.rate = settings.rate ?? s.rate;
       s.share = settings.share ?? s.share;
-      s.marts = settings.marts?.length ? settings.marts : s.marts;
+      // In number order, so a restored mart goes back to its place among the tabs.
+      s.marts = settings.marts?.length ? [...settings.marts].sort((a, b) => Number(a) - Number(b)) : s.marts;
       s.martNames = settings.martNames ?? {};
       s.sellers = settings.sellers ?? [];
     }
     s.months = monthList.map((x) => x.mo);
     s.pick = pick;
     s.loaded = orders?.for ? orders.for.split(",") : [];
+
+    // «បានលុបថ្មីៗ»: deleted months, deleted weeks of the months still here, deleted marts; latest first.
+    const latest = (a: { deleted: { at: number } }, b: { deleted: { at: number } }) => b.deleted.at - a.deleted.at;
+    for (const { data } of months ?? []) {
+      const month = dbw.toMonth(data);
+      if (data.deleted) s.trash.months.push({ month, deleted: data.deleted });
+      else s.trash.weeks.push(...dbw.deletedWeeks(data).map((x) => ({ month, ...x })));
+    }
+    s.trash.months.sort(latest);
+    s.trash.weeks.sort(latest);
+    s.trash.marts = Object.entries(settings?.deletedMarts ?? {})
+      .map(([id, deleted]) => ({ id, deleted }))
+      .sort(latest);
+    // What they hold stays out of the book.
+    const goneMonths = new Set(s.trash.months.map((t) => monthId(t.month)));
+    const goneWeeks = new Set(s.trash.weeks.map((t) => `${monthId(t.month)}-${t.week.no}`));
+    const goneMarts = new Set(s.trash.marts.map((t) => t.id));
+    const gone = (weekKey: string) => goneWeeks.has(weekKey) || goneMonths.has(dbw.splitWeekKey(weekKey).monthId);
+
     for (const { id, data } of weeks ?? []) {
+      if (gone(id)) continue;
       if (data.codeFloor) s.codeFloor[id] = data.codeFloor;
       if (data.payout) s.payout[id] = data.payout;
       if (data.adjustments) {
         s.adjustments[id] = Object.fromEntries(
-          Object.entries(data.adjustments).map(([mart, list]) => [mart, list.map((a) => [a.no, a.code, a.amount] as [number, string, number])]),
+          Object.entries(data.adjustments)
+            .filter(([mart]) => !goneMarts.has(mart))
+            .map(([mart, list]) => [mart, list.map((a) => [a.no, a.code, a.amount] as [number, string, number])]),
         );
       }
     }
@@ -244,18 +284,20 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
     for (const { id, data } of unpaid ?? []) all.set(id, data);
     for (const { id, data } of orders?.docs ?? []) all.set(id, data);
     for (const [id, o] of all) {
+      if (gone(o.weekKey) || goneMarts.has(o.mart)) continue;
       const week = (s.sheets[o.weekKey] ??= {});
       (week[o.mart] ??= []).push(dbw.toOrder(id, o));
     }
     for (const week of Object.values(s.sheets)) for (const list of Object.values(week)) list.sort((a, b) => a.no - b.no);
-    const sortedNotes = [...(notes ?? [])].sort((a, b) => a.data.at - b.data.at);
+    const sortedNotes = [...(notes ?? [])].filter((n) => !gone(n.data.weekKey)).sort((a, b) => a.data.at - b.data.at);
     for (const { id, data } of sortedNotes) (s.notes[data.weekKey] ??= []).push(dbw.toNote(id, data));
     for (const { id, data } of settlements ?? []) {
+      if (goneMonths.has(id)) continue;
       s.settlement[id] = { closed: !!data.closed, rows: data.rows ?? {} };
       if (data.deduct) s.monthDeduct[id] = data.deduct;
     }
     return s;
-  }, [settings, monthList, pick, orders, weeks, unpaid, notes, settlements]);
+  }, [settings, months, monthList, pick, orders, weeks, unpaid, notes, settlements]);
 
   // A closed month's saved totals follow later changes to its orders (only from server data, never a partial cache).
   const lastResave = useRef("");
@@ -312,7 +354,8 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
 
       addMonth: async (y, m, first) => {
         const id = monthId({ y, m });
-        if (state.months.some((mo) => monthId(mo) === id)) return null;
+        // A deleted month keeps its id (and its orders) until it is deleted for good.
+        if ([...state.months, ...state.trash.months.map((t) => t.month)].some((mo) => monthId(mo) === id)) return null;
         run(dbw.addMonth(db(), id, y, m, first));
         return id;
       },
@@ -324,26 +367,46 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
         run(dbw.closeMonth(db(), id, monthPayout(state, mo), Math.max(4, mo.weeks.length)));
       },
 
+      // ----- «បានលុបថ្មីៗ» -----
+      deleteMonth: (id) => run(dbw.deleteMonth(db(), id, { at: Date.now(), by })),
+      deleteWeek: (id, no) => run(dbw.deleteWeek(db(), id, no, { at: Date.now(), by })),
+      deleteMart: (id) => {
+        if (id === "1" || id === "2") return;
+        run(dbw.deleteMart(db(), id, { at: Date.now(), by }));
+      },
+      restore: (ref) => {
+        if (ref.kind === "month") run(dbw.restoreMonth(db(), ref.month));
+        else if (ref.kind === "week") run(dbw.restoreWeek(db(), ref.month, ref.no));
+        else run(dbw.restoreMart(db(), ref.id));
+      },
+      purge: async (ref) => {
+        try {
+          if (ref.kind === "month") await dbw.purgeMonth(db(), ref.month);
+          else if (ref.kind === "week") await dbw.purgeWeek(db(), ref.month, ref.no);
+          else {
+            // Week sheets with adjustments on the mart's sheet (the book leaves those out, so they are read from the documents).
+            const keys = (weeks ?? []).filter((w) => w.data.adjustments && ref.id in w.data.adjustments).map((w) => w.id);
+            await dbw.purgeMart(db(), ref.id, keys);
+          }
+          return true;
+        } catch (e) {
+          setError(message(e));
+          return false;
+        }
+      },
+      trashOrders: (ref) => dbw.countOrders(db(), ...ordersOf(ref)),
+
       addMart: () => {
-        const taken = new Set(state.marts.map((x) => (state.martNames[x] || `Mart ${x}`).toLowerCase()));
-        let n = Math.max(...state.marts.map(Number)) + 1;
+        const label = (x: string) => (state.martNames[x] || `Mart ${x}`).toLowerCase();
+        const deleted = state.trash.marts.map((t) => t.id);
+        const taken = new Set([...state.marts, ...deleted].map(label));
+        let n = Math.max(...[...state.marts, ...deleted].map(Number)) + 1;
         while (taken.has(`mart ${n}`)) n += 1;
         const id = String(n);
         run(dbw.addMart(db(), id));
         return id;
       },
       renameMart: (id, name) => run(dbw.renameMart(db(), id, name)),
-      removeMart: async (id) => {
-        if (id === "1" || id === "2") return;
-        const keys = Object.entries(state.adjustments)
-          .filter(([, marts]) => id in marts)
-          .map(([k]) => k);
-        try {
-          await dbw.removeMart(db(), id, keys);
-        } catch (e) {
-          setError(message(e));
-        }
-      },
       martStats: (id) => dbw.martStats(db(), id),
       addSeller: (seller) => run(dbw.addSeller(db(), seller)),
       setRate: (rate) => {
@@ -379,7 +442,7 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
         }
       },
     };
-  }, [state, ready, access, error, run]);
+  }, [state, weeks, ready, access, error, run]);
 
   return <Ctx.Provider value={book}>{children}</Ctx.Provider>;
 }

@@ -1,4 +1,4 @@
-# សៀវភៅលក់ · Chhorvy Sales Book
+# សៀវភៅលក់ · LL Sales Book
 
 The sales book from `../mockup`, as a real app: weekly sales sheets per mart, profit by seller, weekly payouts,
 the monthly summary, month-end settlement and pay-later notes, in Khmer. Several people can use it at once from

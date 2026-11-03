@@ -6,6 +6,7 @@ import { latinDigits, parseMoney } from "@/lib/format";
 import type { Lookup } from "@/lib/logic/notes";
 import { bookMonths, findWeek, MONTH_NAMES, monthId, monthLabel, weekKey } from "@/lib/periods";
 import type { Month, Week } from "@/lib/types";
+import { DateField } from "../DateField";
 import { useSaleBook } from "../store";
 
 export interface AddNoteFormHandle {
@@ -185,10 +186,7 @@ export default function AddNoteForm({
             <option value="">គ្មានថ្ងៃកំណត់</option>
           </select>
         </label>
-        <label className="field" htmlFor="n-date" id="n-date-field" hidden={due !== "date"}>
-          ថ្ងៃខែ
-          <input className="input" id="n-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </label>
+        {due === "date" && <DateField id="n-date" label="ថ្ងៃខែ" value={date} onChange={setDate} clearable />}
         <label className="field" htmlFor="n-amount">
           ចំនួនលុយ
           <input

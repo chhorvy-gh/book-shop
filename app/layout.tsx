@@ -11,7 +11,7 @@ const kantumruy = Kantumruy_Pro({ variable: "--font-kantumruy", subsets: ["khmer
 
 export const metadata: Metadata = {
   title: { template: "%s · សៀវភៅលក់", default: "សៀវភៅលក់" },
-  description: "Chhorvy Sales Book: weekly sales sheets, profit by seller, payouts and month-end settlement.",
+  description: "LL Sales Book: weekly sales sheets, profit by seller, payouts and month-end settlement.",
 };
 
 export const viewport: Viewport = {

@@ -1,30 +1,36 @@
 // The book in Firestore: what each document holds, how documents become the state the pages use, and every write.
 //
-//   settings/shop          rate, share, marts, martNames, sellers
-//   months/{monthId}       y, m, weeks {no: {date, end}}, extraPay, closed, historyOnly, sample
+//   settings/shop          rate, share, marts, martNames, sellers, deletedMarts {id: {at, by}}
+//   months/{monthId}       y, m, weeks {no: {date, end, deleted}}, extraPay, closed, historyOnly, sample, deleted {at, by}
 //   weeks/{weekKey}        monthId, no, codeFloor, adjustments {mart: [{no, code, amount}]}, payout {seller: entry}
 //   orders/{id}            weekKey, monthId, mart, no, code, cost, sale, status, items, at, by
 //   notes/{id}             weekKey, monthId, no, code, due, amount, note, collected, flagged, at, by
 //   settlements/{monthId}  closed, rows {seller: {advance, debt, note}}, deduct {seller: amount}
 //   members/{email}        role ("owner" | "member"), name, addedBy, at
 //   meta/bootstrap         owner: the email that claimed the shop
+//
+// A deleted month, week or mart only gets `deleted`: its orders, notes and payouts stay where they are, and the store
+// leaves them out of the book. Restoring takes `deleted` off; deleting for good removes the documents.
 import {
   arrayRemove,
   arrayUnion,
   collection,
   deleteField,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
+  getDocsFromServer,
   query,
   setDoc,
   updateDoc,
   where,
   writeBatch,
   deleteDoc,
+  type DocumentReference,
   type Firestore,
 } from "firebase/firestore";
-import type { Item, Month, Note, Order, PayoutEntry, SettlementRow, Status, Week, WeekPay } from "./types";
+import type { Deleted, Item, Month, Note, Order, PayoutEntry, SettlementRow, Status, Week, WeekPay } from "./types";
 
 // ---------- Document shapes ----------
 
@@ -34,15 +40,17 @@ export interface SettingsDoc {
   marts: string[];
   martNames: Record<string, string>;
   sellers: { name: string; code: string }[];
+  deletedMarts?: Record<string, Deleted>; // marts in «បានលុបថ្មីៗ», no longer in marts
 }
 export interface MonthDoc {
   y: number;
   m: number;
-  weeks?: Record<string, { date: string; end?: string }>;
+  weeks?: Record<string, { date: string; end?: string; deleted?: Deleted }>;
   extraPay?: WeekPay;
   closed?: { pay: WeekPay; weeks: number; at: number };
   historyOnly?: boolean;
   sample?: boolean;
+  deleted?: Deleted;
 }
 export interface WeekDoc {
   monthId: string;
@@ -97,12 +105,19 @@ export const splitWeekKey = (key: string) => {
   return { monthId: key.slice(0, i), no: Number(key.slice(i + 1)) };
 };
 
+const toWeek = (no: string, w: { date: string; end?: string }): Week => ({ no: Number(no), date: w.date, ...(w.end ? { end: w.end } : {}) });
+
+// The month with its weeks, deleted weeks left out.
 export function toMonth(d: MonthDoc): Month {
   const weeks: Week[] = Object.entries(d.weeks ?? {})
-    .map(([no, w]) => ({ no: Number(no), date: w.date, ...(w.end ? { end: w.end } : {}) }))
+    .filter(([, w]) => !w.deleted)
+    .map(([no, w]) => toWeek(no, w))
     .sort((a, b) => a.no - b.no);
   return { y: d.y, m: d.m, weeks, extraPay: d.extraPay, closed: d.closed, historyOnly: d.historyOnly, sample: d.sample };
 }
+// The month's weeks that are in «បានលុបថ្មីៗ».
+export const deletedWeeks = (d: MonthDoc) =>
+  Object.entries(d.weeks ?? {}).flatMap(([no, w]) => (w.deleted ? [{ week: toWeek(no, w), deleted: w.deleted }] : []));
 export const toOrder = (id: string, d: OrderDoc): Order => ({
   id,
   no: d.no,
@@ -145,18 +160,62 @@ export const addMart = (db: Firestore, id: string) => updateDoc(doc(db, "setting
 export const renameMart = (db: Firestore, id: string, name: string) =>
   setDoc(doc(db, "settings", "shop"), { martNames: { [id]: name.trim() ? name.trim() : deleteField() } }, { merge: true });
 
-// A mart goes with its orders in every week (in batches, as a batch holds at most 500 writes).
-export async function removeMart(db: Firestore, id: string, weekKeysWithAdjustments: string[]) {
-  const snap = await getDocs(query(collection(db, "orders"), where("mart", "==", id)));
-  for (let i = 0; i < snap.docs.length; i += 400) {
+// ---------- «បានលុបថ្មីៗ» (recently deleted) ----------
+// Deleting moves a month, week or mart there: only a `deleted` mark is written, so restoring brings everything back.
+
+export const deleteMonth = (db: Firestore, id: string, deleted: Deleted) => setDoc(doc(db, "months", id), { deleted }, { merge: true });
+export const restoreMonth = (db: Firestore, id: string) => setDoc(doc(db, "months", id), { deleted: deleteField() }, { merge: true });
+export const deleteWeek = (db: Firestore, monthId: string, no: number, deleted: Deleted) =>
+  setDoc(doc(db, "months", monthId), { weeks: { [no]: { deleted } } }, { merge: true });
+export const restoreWeek = (db: Firestore, monthId: string, no: number) =>
+  setDoc(doc(db, "months", monthId), { weeks: { [no]: { deleted: deleteField() } } }, { merge: true });
+// A deleted mart leaves the list of marts; its name stays, for the recently deleted page and for restoring.
+export const deleteMart = (db: Firestore, id: string, deleted: Deleted) =>
+  setDoc(doc(db, "settings", "shop"), { marts: arrayRemove(id), deletedMarts: { [id]: deleted } }, { merge: true });
+export const restoreMart = (db: Firestore, id: string) =>
+  setDoc(doc(db, "settings", "shop"), { marts: arrayUnion(id), deletedMarts: { [id]: deleteField() } }, { merge: true });
+
+// How many orders a month, week or mart has (cancelled ones too), counted on the server.
+export const countOrders = async (db: Firestore, field: "monthId" | "weekKey" | "mart", value: string) =>
+  (await getCountFromServer(query(collection(db, "orders"), where(field, "==", value)))).data().count;
+
+// Deleting for good. The documents are found on the server (never from what this device has cached, which could miss
+// some), removed ten to a batch like writeMany, and the month, week or mart itself goes last: if something fails on
+// the way, it is still in the recently deleted list to try again.
+const refsWhere = async (db: Firestore, coll: "orders" | "notes", field: string, value: string) =>
+  (await getDocsFromServer(query(collection(db, coll), where(field, "==", value)))).docs.map((d) => d.ref);
+async function deleteMany(db: Firestore, refs: DocumentReference[]) {
+  const commits: Promise<void>[] = [];
+  for (let i = 0; i < refs.length; i += 10) {
     const b = writeBatch(db);
-    snap.docs.slice(i, i + 400).forEach((d) => b.delete(d.ref));
-    await b.commit();
+    refs.slice(i, i + 10).forEach((r) => b.delete(r));
+    commits.push(b.commit());
   }
-  for (const key of weekKeysWithAdjustments) {
-    await setDoc(doc(db, "weeks", key), { adjustments: { [id]: deleteField() } }, { merge: true });
-  }
-  await setDoc(doc(db, "settings", "shop"), { marts: arrayRemove(id), martNames: { [id]: deleteField() } }, { merge: true });
+  await Promise.all(commits);
+}
+
+// A month: its orders, notes, week sheets (payouts, adjustments), month-end sheet, then the month.
+export async function purgeMonth(db: Firestore, id: string) {
+  const [orders, notes] = await Promise.all([refsWhere(db, "orders", "monthId", id), refsWhere(db, "notes", "monthId", id)]);
+  const weeks = [1, 2, 3, 4, 5].map((no) => doc(db, "weeks", `${id}-${no}`));
+  await deleteMany(db, [...orders, ...notes, ...weeks, doc(db, "settlements", id)]);
+  await deleteDoc(doc(db, "months", id));
+}
+// A week: its orders, notes and week sheet, then the week in its month.
+export async function purgeWeek(db: Firestore, monthId: string, no: number) {
+  const key = `${monthId}-${no}`;
+  const [orders, notes] = await Promise.all([refsWhere(db, "orders", "weekKey", key), refsWhere(db, "notes", "weekKey", key)]);
+  await deleteMany(db, [...orders, ...notes, doc(db, "weeks", key)]);
+  await setDoc(doc(db, "months", monthId), { weeks: { [no]: deleteField() } }, { merge: true });
+}
+// A mart: its orders in every week and its adjustments on the week sheets that have some, then the mart and its name.
+export async function purgeMart(db: Firestore, id: string, weekKeysWithAdjustments: string[]) {
+  await deleteMany(db, await refsWhere(db, "orders", "mart", id));
+  await writeMany(
+    db,
+    weekKeysWithAdjustments.map((key) => ({ path: ["weeks", key] as [string, string], data: { adjustments: { [id]: deleteField() } }, merge: true })),
+  );
+  await setDoc(doc(db, "settings", "shop"), { deletedMarts: { [id]: deleteField() }, martNames: { [id]: deleteField() } }, { merge: true });
 }
 
 // A mart's orders over every week: how many (cancelled ones too), in how many weeks, and their sale (cancelled left out).

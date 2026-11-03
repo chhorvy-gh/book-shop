@@ -254,7 +254,7 @@ function Entry({ month, week }: { month: Month; week: Week }) {
             {recent.map((o) => (
               <li key={o.id}>
                 <span className="stack" style={{ lineHeight: 1.4 }}>
-                  <span className="strong">{o.code}</span>
+                  <span className="strong">{o.code || "—"}</span>
                   <span className="sub">
                     #{o.no} · {sellerOf(state, o.code) || "មិនស្គាល់អ្នកលក់"}
                   </span>

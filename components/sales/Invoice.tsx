@@ -14,7 +14,7 @@ export default function Invoice({ data }: { data: InvoiceData }) {
   if (!lines.length) lines.push([`ទំនិញតាមការបញ្ជាទិញ #${data.no}`, "", data.sale]);
   else if (listed !== data.sale) lines.push(["កែតម្រូវ", "", data.sale - listed]);
   const meta: [string, React.ReactNode][] = [
-    ["លេខកូដ", <b key="c">{data.code}</b>],
+    ["លេខកូដ", <b key="c">{data.code || "—"}</b>],
     ["ការបញ្ជាទិញ", `#${data.no}`],
     ["អ្នកលក់", data.seller || "—"],
     ["ផ្សារ", data.mart],
@@ -28,7 +28,7 @@ export default function Invoice({ data }: { data: InvoiceData }) {
           <span className="inv-mark">ឆ</span>
           <span>
             <b>សៀវភៅលក់</b>
-            <small>Chhorvy Sales Book</small>
+            <small>LL Sales Book</small>
           </span>
         </div>
         <div className="inv-title">
