@@ -1,9 +1,11 @@
 rules_version = '2';
 
-// Who may use the sales book: Google accounts whose email is listed under /members.
-// The first person to sign in to an empty shop becomes its owner (made together with /meta/bootstrap);
-// after that only an owner can add or remove people. Roles: owner and member change the book; a viewer only reads
-// what the sales sheet shows (settings, months, weeks, orders) and changes nothing.
+// Who may use the sales book: Google accounts and username logins whose email is listed under /members.
+// The first person to sign in to an empty shop becomes its owner (made together with /meta/bootstrap, Google only);
+// after that only an owner can add or remove people, and may give any role to a Google account or a username.
+// Roles: owner and member change the book; a viewer only reads what the sales sheet shows (settings, months, weeks,
+// orders) and changes nothing. A member who signs in with a username reads what a viewer reads, and changes only what
+// the sales sheet changes (orders, months and weeks, sellers and marts), each with its history line.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -11,8 +13,9 @@ service cloud.firestore {
     function verified() {
       return request.auth != null && request.auth.token.email != null && request.auth.token.email_verified == true;
     }
-    // A viewer's username login (lib/usernames.ts): a password account on the reserved viewer domain. Its address
-    // cannot be verified, so it only ever counts as a viewer.
+    // A username login (lib/usernames.ts): a password account on the reserved viewer domain. Its address cannot be
+    // verified; it counts only when an owner listed it under /members: as an owner, a viewer, or a member of the sales
+    // sheet only (salesMember).
     function usernameLogin() {
       return request.auth != null && request.auth.token.email != null
         && request.auth.token.firebase.sign_in_provider == 'password'
@@ -31,10 +34,19 @@ service cloud.firestore {
       return signedIn() && exists(memberDoc());
     }
     function isOwner() {
-      return verified() && isMember() && get(memberDoc()).data.role == 'owner';
+      return isMember() && get(memberDoc()).data.role == 'owner';
     }
+    // Owners, and members who sign in with Google (a username member is a salesMember instead).
     function isEditor() {
-      return verified() && isMember() && get(memberDoc()).data.role in ['owner', 'member'];
+      return isMember() && (get(memberDoc()).data.role == 'owner' || (verified() && get(memberDoc()).data.role == 'member'));
+    }
+    // A member's username login: works on the quick calculator and the sales sheet only.
+    function salesMember() {
+      return usernameLogin() && isMember() && get(memberDoc()).data.role == 'member';
+    }
+    // Who may change what the sales sheet changes.
+    function salesEditor() {
+      return isEditor() || salesMember();
     }
     function bootstrapped() {
       return exists(/databases/$(database)/documents/meta/bootstrap);
@@ -56,10 +68,9 @@ service cloud.firestore {
       allow create: if verified() && email == myEmail() && !bootstrapped()
         && request.resource.data.role == 'owner'
         && existsAfter(/databases/$(database)/documents/meta/bootstrap);
-      // A username login (the viewer domain) can only be a viewer.
+      // A Google account or a username login (the viewer domain), with any role.
       allow create, update: if isOwner() && email == email.lower()
-        && request.resource.data.role in ['owner', 'member', 'viewer']
-        && (request.resource.data.role == 'viewer' || !email.matches('.*@viewer[.]salebook[.]invalid'));
+        && request.resource.data.role in ['owner', 'member', 'viewer'];
       // An owner cannot remove themselves, so the shop always keeps one.
       allow delete: if isOwner() && email != myEmail();
     }
@@ -73,10 +84,17 @@ service cloud.firestore {
     match /settings/{doc} {
       allow read: if isMember();
       allow write: if isEditor();
+      // The sales sheet adds sellers, and adds, renames and deletes marts; the rate and share are not its to change.
+      allow update: if salesMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sellers', 'marts', 'martNames', 'deletedMarts']);
     }
     match /months/{monthId} {
       allow read: if isMember();
       allow write: if isEditor();
+      // The sales sheet makes months and weeks, changes a week's dates, and deletes a month or a week (a mark only,
+      // restored from «បានលុបថ្មីៗ» by an editor). A month's closing and saved totals are the month-end page's.
+      allow create: if salesMember() && request.resource.data.keys().hasOnly(['y', 'm', 'weeks']);
+      allow update: if salesMember() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['weeks', 'deleted']);
     }
     match /weeks/{weekKey} {
       allow read: if isMember();
@@ -93,11 +111,13 @@ service cloud.firestore {
           && d.no is int && d.code is string && d.code.size() <= 40
           && isMoney(d.cost) && isMoney(d.sale)
           && d.status in ['p', 'u', 'x']
-          && d.items is list && d.items.size() <= 200;
+          && d.items is list && d.items.size() <= 200
+          && (!('note' in d) || (d.note is string && d.note.size() <= 200))
+          && (!('day' in d) || (d.day is string && d.day.size() <= 10));
       }
       allow read: if isMember();
-      allow delete: if isEditor();
-      allow create, update: if isEditor() && validOrder(request.resource.data);
+      allow delete: if salesEditor();
+      allow create, update: if salesEditor() && validOrder(request.resource.data);
     }
 
     match /notes/{id} {
@@ -109,6 +129,20 @@ service cloud.firestore {
       }
       allow read, delete: if isEditor();
       allow create, update: if isEditor() && validNote(request.resource.data);
+    }
+
+    // ---------- «តម្លៃលក់» (sale prices) ----------
+    // The shop's items with their cost and sale price per unit. Owners and members only: like the sales sheet, it keeps
+    // cost prices from viewers (and from sales-only members, who do not have the page).
+    match /prices/{id} {
+      function validPrice(d) {
+        return d.keys().hasAll(['name', 'unit', 'cost', 'sale'])
+          && d.name is string && d.name.size() > 0 && d.name.size() <= 60
+          && d.unit is string && d.unit.size() <= 20
+          && isMoney(d.cost) && isMoney(d.sale);
+      }
+      allow read, delete: if isEditor();
+      allow create, update: if isEditor() && validPrice(request.resource.data);
     }
 
     // ---------- «ប្រវត្តិកែប្រែ» (change history) ----------
@@ -124,9 +158,10 @@ service cloud.firestore {
           && d.act in ['add', 'edit', 'delete', 'restore', 'purge', 'close']
           && d.kind is string && d.target is string && d.title is string;
       }
+      // A sales-only member writes the lines of their own changes (the rules above say which), but cannot read them.
       allow read: if isEditor();
-      allow create: if isEditor() && validLine(request.resource.data);
-      allow update: if isEditor() && resource.data.by == myEmail()
+      allow create: if salesEditor() && validLine(request.resource.data);
+      allow update: if salesEditor() && resource.data.by == myEmail()
         && request.time < resource.data.saved + duration.value(1, 'h')
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['after', 'last']);
     }

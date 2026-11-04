@@ -4,6 +4,7 @@
 // segmented tabs, the switch, dialogs, table cells that edit in place, the status line.
 import { useEffect, useRef, useState } from "react";
 import { fmt, parseMoney } from "@/lib/format";
+import { Icon } from "./icons";
 
 export type Tone = "accent" | "success" | "warning" | "danger" | "default";
 // The chip class of a tone: "chip chip-success" …
@@ -77,7 +78,8 @@ export function Switch({
 
 // ---------- Dialog (<dialog class="dialog">) ----------
 
-// A modal <dialog>, opened and closed by `open`. Esc asks onClose, like the mockup's dialogs.
+// A modal <dialog>, opened and closed by `open`. Esc or the × in the top corner asks onClose, like the mockup's dialogs.
+// The × comes after the contents so the box each dialog focuses first stays the same; CSS puts it in the corner.
 export function Dialog({
   open,
   onClose,
@@ -111,7 +113,14 @@ export function Dialog({
         onClose();
       }}
     >
-      {open && children}
+      {open && (
+        <>
+          {children}
+          <button type="button" className="dialog-close" aria-label="បិទ" title="បិទ" onClick={onClose}>
+            <Icon name="close" size={18} />
+          </button>
+        </>
+      )}
     </dialog>
   );
 }

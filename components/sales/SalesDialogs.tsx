@@ -65,7 +65,7 @@ function SellerForm({ name0, code0, onClose, onAdded }: { name0: string; code0: 
     <form noValidate onSubmit={submit}>
       <div className="stack" style={{ gap: 4 }}>
         <h2 id="seller-dialog-title">បន្ថែមអ្នកលក់ថ្មី</h2>
-        <span className="sub">បង្ហាញក្នុងគ្រប់ទំព័រ · ចំណេញតាមអ្នកលក់ ទូទាត់ប្រចាំអាទិត្យ សង្ខេបប្រចាំខែ</span>
+        <span className="sub">បង្ហាញក្នុងគ្រប់ទំព័រ · ចំណេញអ្នកលក់ ទូទាត់ប្រចាំអាទិត្យ សង្ខេបប្រចាំខែ</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "start" }}>
         <label className="field" htmlFor="seller-name">

@@ -132,6 +132,10 @@ export function listText(order: Pick<Order, "no" | "items">, field: "cost" | "sa
 // Whether an order has gone out to the customer, as the pages say it.
 export const SENT = { yes: "បានផ្ញើ", no: "មិនទាន់ផ្ញើ" } as const;
 
+// An order's note: at most this long (firestore.rules says the same), one space between words.
+export const NOTE_MAX = 200;
+export const tidyNote = (s: string) => s.trim().replace(/\s+/g, " ");
+
 export const sumItems = (items: Item[], field: "cost" | "sale") => items.reduce((a, it) => a + it[field], 0);
 
 // The ② sale list as the customer sees it (invoice and order view): [name, quantity, amount] per item, and one

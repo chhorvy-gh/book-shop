@@ -10,8 +10,8 @@ import { DateField } from "../DateField";
 import { useSaleBook } from "../store";
 
 export interface AddNoteFormHandle {
-  // "+ កំណត់ចំណាំ" on an unpaid order: fills the form with it, ready to pick a due day.
-  fill: (key: string, order: { no: number; code: string; sale: number }) => void;
+  // "+ កំណត់ចំណាំ" on an unpaid order: fills the form with it (its note from the sales sheet too), ready to pick a due day.
+  fill: (key: string, order: { no: number; code: string; sale: number; note?: string }) => void;
 }
 
 export default function AddNoteForm({
@@ -68,6 +68,7 @@ export default function AddNoteForm({
         setCodeError(false);
         setAmount(String(order.sale));
         setAmountError(false);
+        setNote(order.note ?? "");
         formRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
         dueRef.current?.focus({ preventScroll: true });
       },

@@ -7,10 +7,12 @@ import { monthLabel } from "@/lib/periods";
 import { TRASH_NAME } from "@/lib/trash";
 import MonthDialog from "./dialogs/MonthDialog";
 import { Icon } from "./icons";
-import { useSaleBook } from "./store";
+import { salesOnly, useSaleBook } from "./store";
 
 export default function Welcome() {
-  const { state, loadSample } = useSaleBook();
+  const { state, access, loadSample } = useSaleBook();
+  // A sales-only member makes the first month, but cannot load the sample (it has notes) or open the deleted page.
+  const limited = salesOnly(access);
   const [monthOpen, setMonthOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   return (
@@ -44,28 +46,30 @@ export default function Welcome() {
               <Icon name="arrow" size={16} />
             </a>
           </li>
-          <li>
-            <a
-              href="#"
-              aria-disabled={busy}
-              onClick={async (e) => {
-                e.preventDefault();
-                if (busy) return;
-                setBusy(true);
-                await loadSample();
-                setBusy(false);
-              }}
-            >
-              <span className="dot is-next">2</span>
-              <span className="stack">
-                <span className="strong">{busy ? "កំពុងដាក់ទិន្នន័យគំរូ…" : "ឬ ដាក់ទិន្នន័យគំរូ ដើម្បីសាកល្បង"}</span>
-                <span className="sub">អាទិត្យទី 3 ខែតុលា 2026 · Mart 1 និង Mart 2 · អ្នកលក់ 21 នាក់ · កំណត់ចំណាំ</span>
-              </span>
-              <Icon name="download" size={16} />
-            </a>
-          </li>
+          {!limited && (
+            <li>
+              <a
+                href="#"
+                aria-disabled={busy}
+                onClick={async (e) => {
+                  e.preventDefault();
+                  if (busy) return;
+                  setBusy(true);
+                  await loadSample();
+                  setBusy(false);
+                }}
+              >
+                <span className="dot is-next">2</span>
+                <span className="stack">
+                  <span className="strong">{busy ? "កំពុងដាក់ទិន្នន័យគំរូ…" : "ឬ ដាក់ទិន្នន័យគំរូ ដើម្បីសាកល្បង"}</span>
+                  <span className="sub">អាទិត្យទី 3 ខែតុលា 2026 · Mart 1 និង Mart 2 · អ្នកលក់ 21 នាក់ · កំណត់ចំណាំ</span>
+                </span>
+                <Icon name="download" size={16} />
+              </a>
+            </li>
+          )}
         </ol>
-        {state.trash.months.length > 0 && (
+        {!limited && state.trash.months.length > 0 && (
           <Link className="alert alert-warning" href="/trash" style={{ fontSize: 14 }}>
             <Icon name="trash" size={18} />
             <span>

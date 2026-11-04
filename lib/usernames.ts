@@ -1,6 +1,8 @@
-// Viewers can sign in with a username and password instead of Google. Firebase Auth needs an email address, so the
-// username "dara" is the address dara@viewer.salebook.invalid: ".invalid" is reserved (RFC 2606), so no mail can ever
-// go there. firestore.rules lets these unverified addresses in as viewers only.
+// Anyone an owner adds can sign in with a username and password instead of Google. Firebase Auth needs an email
+// address, so the username "dara" is the address dara@viewer.salebook.invalid: ".invalid" is reserved (RFC 2606), so no
+// mail can ever go there. firestore.rules lets these unverified addresses in only once an owner lists them: as owners,
+// viewers, or members of the quick calculator and the sales sheet only. (The domain says "viewer" from before the other
+// roles could have one; it stays, so the logins already made keep working.)
 export const USERNAME_DOMAIN = "viewer.salebook.invalid";
 // Latin letters and digits (with . _ -), 3–20 long: what Firebase accepts before the @.
 export const USERNAME = /^[a-z0-9][a-z0-9._-]{2,19}$/;

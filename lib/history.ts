@@ -7,7 +7,7 @@ import { dueInfo } from "./logic/due";
 import { SENT, STATUS } from "./orders";
 import { martLabel, monthLabel, weekLabel } from "./periods";
 import { TRASH_NAME } from "./trash";
-import type { Item, Note, Order, SaleBookState, Status } from "./types";
+import type { Item, Note, Order, PriceItem, SaleBookState, Status } from "./types";
 
 export const HISTORY_NAME = "ប្រវត្តិកែប្រែ";
 
@@ -32,6 +32,7 @@ export const KIND: Record<HistoryKind, string> = {
   deduct: "សង្ខេបប្រចាំខែ",
   settlement: "ទូទាត់ចុងខែ",
   member: "អ្នកប្រើ",
+  price: "តម្លៃលក់",
   sample: "ទិន្នន័យគំរូ",
 };
 
@@ -56,6 +57,7 @@ const KIND_FILTER: Record<HistoryKind, Exclude<KindFilter, "all">> = {
   mart: "other",
   seller: "other",
   member: "other",
+  price: "other",
   sample: "other",
 };
 export type ActFilter = "all" | "add" | "edit" | "delete";
@@ -96,6 +98,9 @@ export const noteTitle = (n: Pick<Note, "no" | "code">) => (n.no === "—" ? n.c
 // Everything an order or note holds, for the line of an add or a delete.
 export const orderFields = ({ no, code, cost, sale, status, items }: Omit<Order, "id">) => ({ no, code, cost, sale, status, items });
 export const noteFields = ({ no, code, due, amount, note, collected, flagged }: Omit<Note, "id">) => ({ no, code, due, amount, note, collected, flagged });
+// A price list item by its name and unit: "សាច់ជ្រូក · គីឡូ".
+export const priceTitle = (p: Pick<PriceItem, "name" | "unit">) => (p.unit ? `${p.name} · ${p.unit}` : p.name);
+export const priceFields = ({ name, unit, cost, sale }: Omit<PriceItem, "id">) => ({ name, unit, cost, sale });
 
 // Where an order or note is in the book, from what is loaded.
 export function findOrder(s: SaleBookState, id: string) {
@@ -118,7 +123,7 @@ export function findNote(s: SaleBookState, id: string) {
 
 // The fields each kind of line can show, in the order they show, with their names on the pages.
 const FIELDS: Record<HistoryKind, Record<string, string>> = {
-  order: { no: "លេខ", code: "កូដ", cost: "លុយដើម", sale: "លុយលក់", status: "ស្ថានភាព", items: "មុខទំនិញ", sent: "ការផ្ញើ" },
+  order: { no: "លេខ", code: "កូដ", cost: "លុយដើម", sale: "លុយលក់", status: "ស្ថានភាព", items: "មុខទំនិញ", sent: "ការផ្ញើ", note: "កំណត់ចំណាំ" },
   note: { no: "លេខ", code: "កូដ", due: "ថ្ងៃកំណត់", amount: "ចំនួនលុយ", note: "កំណត់ចំណាំ", collected: "ស្ថានភាព", flagged: "ពណ៌លឿង" },
   payout: { deduct: "ដក", add: "បូក", paid: "បានបើក" },
   deduct: { value: "ដក" },
@@ -129,12 +134,14 @@ const FIELDS: Record<HistoryKind, Record<string, string>> = {
   mart: { name: "ឈ្មោះ" },
   seller: { code: "កូដ" },
   member: { role: "សិទ្ធិ", seller: "មើលតែអ្នកលក់" },
+  price: { name: "ឈ្មោះ", unit: "ឯកតា", cost: "លុយដើម", sale: "លុយលក់" },
   sample: {},
 };
 // What an add or a delete shows of the thing: enough to know it again (its name is the line's title already).
 const SUMMARY: Partial<Record<HistoryKind, string[]>> = {
   order: ["cost", "sale", "status", "items"],
   note: ["amount", "due", "note"],
+  price: ["cost", "sale"],
 };
 const ROLE: Record<string, string> = { owner: "ម្ចាស់ហាង", member: "អ្នកប្រើ", viewer: "អ្នកមើល" };
 

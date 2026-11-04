@@ -4,14 +4,13 @@
 // table, print a customer's invoice, export to Excel; make months and weeks; add sellers and marts.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { dropItems, takeItems } from "@/lib/calcItems";
-import { fmt, latinDigits, margin, prefixOf, signed } from "@/lib/format";
-import { NEXT_STATUS, STATUS, findCode, nextCodeNumber, sumItems, totals } from "@/lib/orders";
-import { monthLabel, pickedWeek, weekKey, weekLabel, weekMarts, weekRange } from "@/lib/periods";
+import { fmt, latinDigits, prefixOf, todayText } from "@/lib/format";
+import { NEXT_STATUS, NOTE_MAX, STATUS, findCode, nextCodeNumber, sumItems, totals } from "@/lib/orders";
+import { martLabel, monthLabel, pickedWeek, weekKey, weekLabel, weekMarts, weekRange } from "@/lib/periods";
 import { TRASH_NAME, trashedWeeks } from "@/lib/trash";
-import type { InvoiceData, Item, Mart, Month, Order, Seller, Week } from "@/lib/types";
+import type { InvoiceData, Item, Month, Order, Seller, Week } from "@/lib/types";
 import DeletePeriodDialog, { type PeriodTarget } from "../dialogs/DeletePeriodDialog";
 import MonthDialog from "../dialogs/MonthDialog";
 import WeekDialog from "../dialogs/WeekDialog";
@@ -31,11 +30,16 @@ const setDocTitle = (title: string) => {
   document.title = title;
 };
 
-// What the quick calculator sent: the totals for the add form, and its item list for the order.
+// What the quick calculator sent: the totals for the add form, the mart picked there, and its item list and note for the
+// order.
 interface FromCalc {
   cost: string;
   sale: string;
+  mart: string; // "" = none picked
+  no: number | null; // the order's number, from the list's title ("1"); null = the next one
+  day: string; // the day of the calculation ("04-11-2026"), "" = today
   items: Item[];
+  note: string;
 }
 
 export default function SalesPage() {
@@ -46,12 +50,25 @@ export default function SalesPage() {
   const note = useNote();
   const router = useRouter();
   const params = useSearchParams();
-  // The quick calculator links here with ?cost=95000&sale=110000 (sale only when every item has one), and leaves its
-  // item list in session storage.
+  // The quick calculator links here with ?cost=95000&sale=110000&mart=2&no=1 (sale only when every item has one, no when
+  // the list's title is a number), and leaves its item list in session storage.
   const [fromCalc] = useState<FromCalc | null>(() => {
     const cost = parseFloat(params.get("cost") ?? "");
     const sale = parseFloat(params.get("sale") ?? "");
-    return cost > 0 ? { cost: String(cost), sale: sale > 0 ? String(sale) : "", items: takeItems(cost) } : null;
+    // A mart that is not on the week's sheet falls back to the first, as any unknown sheet does.
+    const mart = params.get("mart") ?? "";
+    const no = Number(params.get("no"));
+    const day = params.get("day") ?? "";
+    return cost > 0
+      ? {
+          cost: String(cost),
+          sale: sale > 0 ? String(sale) : "",
+          mart,
+          no: Number.isInteger(no) && no > 0 ? no : null,
+          day: /^\d{2}-\d{2}-\d{4}$/.test(day) ? day : "",
+          ...takeItems(cost),
+        }
+      : null;
   });
   const [weekDialog, setWeekDialog] = useState<{ open: boolean; editing: Week | null }>({ open: false, editing: null });
   const [monthOpen, setMonthOpen] = useState(false);
@@ -63,7 +80,7 @@ export default function SalesPage() {
   useEffect(() => {
     if (!fromCalc) return;
     note.show(
-      `លុយដើម ${fmt(+fromCalc.cost)}${fromCalc.sale ? ` និងលុយលក់ ${fmt(+fromCalc.sale)}` : ""}${fromCalc.items.length ? ` និងបញ្ជីទំនិញ ${fromCalc.items.length} មុខ` : ""} មកពីគណនារហ័ស · ${fromCalc.sale ? "ជ្រើសអ្នកលក់ ហើយចុចបន្ថែម។" : "ជ្រើសអ្នកលក់ ហើយបញ្ចូលលុយលក់។"}`,
+      `លុយដើម ${fmt(+fromCalc.cost)}${fromCalc.sale ? ` និងលុយលក់ ${fmt(+fromCalc.sale)}` : ""}${fromCalc.items.length ? ` និងបញ្ជីទំនិញ ${fromCalc.items.length} មុខ` : ""}${fromCalc.note ? ` និងកំណត់ចំណាំ «${fromCalc.note}»` : ""} មកពីគណនារហ័ស${fromCalc.no ? ` សម្រាប់ការបញ្ជាទិញ #${fromCalc.no}` : ""}${state.marts.length > 1 && state.marts.includes(fromCalc.mart) ? ` · ដាក់ចូល ${martLabel(state, fromCalc.mart)}` : ""} · ${fromCalc.sale ? "ជ្រើសអ្នកលក់ ហើយចុចបន្ថែម។" : "ជ្រើសអ្នកលក់ ហើយបញ្ចូលលុយលក់។"}`,
     );
     // A reload should not bring the amounts back.
     router.replace("/sales", { scroll: false });
@@ -190,7 +207,8 @@ function WeekSheet({
   const range = weekRange(week);
   const names = useMemo(() => new Map(state.sellers.map((s) => [s.code, s.name])), [state.sellers]);
 
-  const [sheet, setSheet] = useState("1");
+  // The mart on screen, which is also where a new order goes: the one picked in the calculator when it sent amounts.
+  const [sheet, setSheet] = useState(fromCalc?.mart || "1");
   const mart = marts.find((m) => m.id === sheet) ?? marts[0];
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
@@ -225,6 +243,13 @@ function WeekSheet({
   const [sale, setSale] = useState(fromCalc?.sale ?? "");
   // The calculator's item list goes with the next order, as long as the amounts are still its totals.
   const [calcItems, setCalcItems] = useState<Item[]>(fromCalc?.items ?? []);
+  // Its note goes with the next order added or filled, whatever its amounts: it says something about that order.
+  const [calcNote, setCalcNote] = useState(fromCalc?.note ?? "");
+  // The order number from the calculator's list title: the mart's order with that number takes the amounts (not a
+  // cancelled one), or the new order gets that number if no order has it.
+  const [calcNo, setCalcNo] = useState<number | null>(fromCalc?.no ?? null);
+  // And its day, for the next order added: other orders get the day they are added.
+  const [calcDay, setCalcDay] = useState(fromCalc?.day ?? "");
   const itemsFor = (c: number, s: number) =>
     calcItems.length && calcItems.length <= 200 && sumItems(calcItems, "cost") === c && sumItems(calcItems, "sale") === s ? calcItems : null;
   const costRef = useRef<HTMLInputElement>(null);
@@ -238,6 +263,11 @@ function WeekSheet({
   const fill = dup && dup.order.status !== "x" ? dup : null;
   const fillName = fill ? `#${fill.no}${fill.martId !== mart.id ? ` · ${fill.mart}` : ""}` : "";
   const unknown = codeEdited && typedCode && !names.has(prefixOf(typedCode)) ? prefixOf(typedCode) : "";
+  // A typed code that is already used wins over the number: the amounts go to that code's order.
+  const numbered = calcNo && !fill ? mart.orders.find((o) => o.no === calcNo) : undefined;
+  const fillNo = numbered && numbered.status !== "x" ? numbered : null;
+  const nextNo = Math.max(0, ...mart.orders.map((o) => o.no)) + 1;
+  const newNo = calcNo && !numbered ? calcNo : nextNo;
   const saleNum = parseFloat(sale);
   const preview = isNaN(saleNum) ? null : saleNum - (parseFloat(cost) || 0);
 
@@ -271,17 +301,33 @@ function WeekSheet({
       fillOrder(found.order, found.martId);
       return;
     }
+    if (fillNo) {
+      fillOrder(fillNo, mart.id);
+      return;
+    }
     // Prices are optional here: an empty box adds the order at 0, to fill in later in the table.
     const [c, s] = [parseFloat(cost) || 0, saleNum || 0];
-    const order = { no: Math.max(0, ...mart.orders.map((o) => o.no)) + 1, code: finalCode, cost: c, sale: s, status: "u" as const, items: itemsFor(c, s) ?? [] };
+    const order = {
+      no: newNo,
+      code: finalCode,
+      cost: c,
+      sale: s,
+      status: "u" as const,
+      items: itemsFor(c, s) ?? [],
+      ...(calcNote ? { note: calcNote } : {}),
+      day: calcDay || todayText(),
+    };
     setCalcItems([]);
+    setCalcNote("");
+    setCalcNo(null);
+    setCalcDay("");
     const id = book.addOrder(key, mart.id, order);
     setOriginals((m) => new Map(m).set(id, { code: order.code, cost: order.cost, sale: order.sale }));
     setNewId(id);
-    // Show the page the new order lands on: the last one.
+    // Show the page the new order lands on (orders go by number): the last one, unless it took an earlier number.
     setFilter("all");
     setQuery("");
-    setPage(Math.floor(mart.orders.length / PAGE_SIZE));
+    setPage(Math.floor(mart.orders.filter((o) => o.no < order.no).length / PAGE_SIZE));
     setCost("");
     setSale("");
     setCode("");
@@ -290,10 +336,11 @@ function WeekSheet({
     requestAnimationFrame(() => document.getElementById(`order-${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   }
 
-  // Puts the typed amounts into an order that already has the code; a box left empty keeps the order's amount. The table
+  // Puts the typed amounts into an order that already has the code (or the calculator's number); a box left empty keeps the
+// order's amount. The table
   // then shows that order, marked like a new one, with the changed cells saying what they were.
   function fillOrder(o: Order, martId: string) {
-    const patch: Partial<Pick<Order, "cost" | "sale" | "items">> = {};
+    const patch: Partial<Pick<Order, "cost" | "sale" | "items" | "note">> = {};
     if (cost.trim() !== "") patch.cost = parseFloat(cost) || 0;
     if (sale.trim() !== "") patch.sale = saleNum || 0;
     if (!("cost" in patch) && !("sale" in patch)) {
@@ -302,7 +349,13 @@ function WeekSheet({
     }
     const items = itemsFor(patch.cost ?? o.cost, patch.sale ?? o.sale);
     if (items) patch.items = items;
+    // The calculator's note joins the note the order already has, unless it says it already.
+    const had = o.note ?? "";
+    if (calcNote && !had.includes(calcNote)) patch.note = (had ? `${had} · ${calcNote}` : calcNote).slice(0, NOTE_MAX);
     setCalcItems([]);
+    setCalcNote("");
+    setCalcNo(null);
+    setCalcDay("");
     book.updateOrder(o.id, patch);
     const list = marts.find((m) => m.id === martId)?.orders ?? [];
     if (martId !== mart.id) setSheet(martId);
@@ -395,13 +448,8 @@ function WeekSheet({
     return () => window.removeEventListener("afterprint", done);
   }, []);
 
-  // A viewer sees every mart of the week in one table, and the totals and adjustments of all of them.
+  // A viewer sees every mart of the week in one table.
   const tableOrders = readOnly ? marts.flatMap((m) => m.orders) : mart.orders;
-  const t = totals(tableOrders);
-  const adjOf = (m: Mart, named: boolean) =>
-    (state.adjustments[key]?.[m.id] ?? []).map(([no, c, amt]) => [no, named ? `${c} · ${m.label}` : c, amt] as [number, string, number]);
-  const adj = readOnly ? marts.flatMap((m) => adjOf(m, marts.length > 1)) : adjOf(mart, false);
-  const adjSum = adj.reduce((a, x) => a + x[2], 0);
   const count = (orders: Order[]) => totals(orders).count;
   const meta = `${mart.label} · ${weekLabel(week)} · ${range}`;
   const viewMeta = viewing ? `${martOf.get(viewing.id)?.label ?? mart.label} · ${weekLabel(week)} · ${range}` : meta;
@@ -454,6 +502,16 @@ function WeekSheet({
             </span>
             {/* The mart picked at the top is also where a new order goes, so the form shows the same choice. */}
             <Tabs labelledBy="form-mart-label" id="form-mart" value={mart.id} onPick={openSheet} items={marts.map((m) => ({ key: m.id, label: m.label }))} />
+            {/* The calculator's order number: which order the amounts go to, in the mart picked. */}
+            {calcNo !== null && !fill && (
+              <span className="sub t-accent" id="no-hint">
+                {fillNo
+                  ? `ការបញ្ជាទិញ #${fillNo.no}${fillNo.code ? ` · ${fillNo.code}` : ""} មានរួចហើយ · លុយពីគណនារហ័ស នឹងដាក់ជំនួស${fillNo.cost || fillNo.sale ? ` (${fmt(fillNo.cost)} / ${fmt(fillNo.sale)})` : ""}`
+                  : numbered
+                    ? `#${calcNo} ត្រូវបានបោះបង់ · ការបញ្ជាទិញថ្មីនឹងមានលេខ #${newNo}`
+                    : `ការបញ្ជាទិញថ្មីនឹងមានលេខ #${newNo}`}
+              </span>
+            )}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, alignItems: "start" }}>
             <div className="field">
@@ -535,7 +593,7 @@ function WeekSheet({
             <div className="field">
               <span aria-hidden="true">&nbsp;</span>
               <button type="submit" className="btn btn-primary">
-                {fill ? `ដាក់ចូល ${fillName}` : "បន្ថែមការបញ្ជាទិញ"}
+                {fill ? `ដាក់ចូល ${fillName}` : fillNo ? `ដាក់ចូល #${fillNo.no}` : "បន្ថែមការបញ្ជាទិញ"}
               </button>
             </div>
           </div>
@@ -578,73 +636,6 @@ function WeekSheet({
           onBulkStatus={bulkStatus}
           onBulkDelete={setBulkDeleting}
         />
-
-        <aside className="grow-side">
-          <section className="card" style={{ padding: "20px 24px", gap: 12 }}>
-            <h2 style={{ fontSize: 16 }}>{readOnly && marts.length > 1 ? "សរុបគ្រប់ Mart" : `សរុប ${mart.label}`}</h2>
-            <dl className="totals">
-              <div>
-                <dt>ការបញ្ជាទិញ</dt>
-                <dd>{t.count}</dd>
-              </div>
-              {/* A viewer is not shown cost prices or profit: their sales are the total. */}
-              {!readOnly && (
-                <div>
-                  <dt>លុយដើម</dt>
-                  <dd>{fmt(t.cost)}</dd>
-                </div>
-              )}
-              <div className={readOnly ? "total" : undefined}>
-                <dt>លុយលក់</dt>
-                <dd>{fmt(t.sale)}</dd>
-              </div>
-              {!readOnly && (
-                <>
-                  <div className="total">
-                    <dt>ចំណេញ</dt>
-                    <dd className="t-success">{fmt(t.profit)}</dd>
-                  </div>
-                  <div>
-                    <dt>អត្រាចំណេញ</dt>
-                    <dd style={{ fontWeight: 400 }}>{margin(t.profit, t.sale)}</dd>
-                  </div>
-                </>
-              )}
-            </dl>
-            {!readOnly && (
-              <Link href="/sellers" style={{ fontSize: 13, fontWeight: 500 }}>
-                ចែកចំណេញតាមអ្នកលក់
-              </Link>
-            )}
-          </section>
-
-          <section className="card" style={{ padding: "20px 24px", gap: 12 }}>
-            <div className="card-head">
-              <h2 style={{ fontSize: 16 }}>ការកែតម្រូវ</h2>
-              <span className={`strong num ${adjSum < 0 ? "t-danger" : adjSum > 0 ? "t-success" : "muted"}`}>{signed(adjSum)}</span>
-            </div>
-            <span className="sub" style={{ marginTop: -8 }}>
-              ដក ឬបូក ភ្ជាប់នឹងលេខការបញ្ជាទិញ
-            </span>
-            <ul className="order-list" style={{ height: "auto", maxHeight: 360, padding: 0, borderBottom: 0 }}>
-              {adj.length ? (
-                adj.map(([no, c, amt], i) => (
-                  <li key={i}>
-                    <span style={{ display: "flex", gap: 8 }}>
-                      <span className="no">#{no}</span>
-                      {c}
-                    </span>
-                    <span className={`strong ${amt < 0 ? "t-danger" : "t-success"}`}>{signed(amt)}</span>
-                  </li>
-                ))
-              ) : (
-                <li>
-                  <span className="muted">មិនទាន់មានការកែតម្រូវ</span>
-                </li>
-              )}
-            </ul>
-          </section>
-        </aside>
       </div>
 
       <ViewDialog

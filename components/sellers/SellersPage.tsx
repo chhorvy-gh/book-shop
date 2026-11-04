@@ -1,7 +1,8 @@
 "use client";
 
-// Profit by seller (mockup/sellers.html): one card per seller for the week or month picked, with the shop's share
-// and what is left for the seller. The share box is a what-if: it starts from the book's share and is not saved.
+// Profit by seller (mockup/sellers.html): the month week by week for every mart (MartTable), then one card per
+// seller for the week or month picked, with the shop's share and what is left for the seller. The share box is a
+// what-if: it starts from the book's share and is not saved.
 import { useState } from "react";
 import Link from "next/link";
 import { fmt, initialOf, pct } from "@/lib/format";
@@ -12,6 +13,7 @@ import PeriodBar from "../PeriodBar";
 import { useSaleBook } from "../store";
 import { Tabs } from "../ui";
 import SellerDetailDialog, { type SellerDetail } from "./SellerDetailDialog";
+import MartTable from "./MartTable";
 
 type Sort = "list" | "rest";
 
@@ -133,7 +135,7 @@ export default function SellersPage() {
           <span className="eyebrow" id="eyebrow">
             {period}
           </span>
-          <h1>ចំណេញតាមអ្នកលក់</h1>
+          <h1>ចំណេញអ្នកលក់</h1>
         </div>
         <div className="actions">
           <label className="field" htmlFor="share" style={{ width: 120 }}>
@@ -194,6 +196,9 @@ export default function SellersPage() {
           </span>
         </div>
       </section>
+
+      {/* The whole month week by week, whichever week is picked: sales, cost, profit and orders for each mart. */}
+      <MartTable state={state} month={mo} />
 
       <section className="seller-grid" id="cards" aria-label="អ្នកលក់">
         {ordered.map((r, k) => {

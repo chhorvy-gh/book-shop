@@ -3,8 +3,9 @@
 //   settings/shop          rate, share, marts, martNames, sellers, deletedMarts {id: {at, by}}
 //   months/{monthId}       y, m, weeks {no: {date, end, deleted}}, extraPay, closed, historyOnly, sample, deleted {at, by}
 //   weeks/{weekKey}        monthId, no, codeFloor, adjustments {mart: [{no, code, amount}]}, payout {seller: entry}
-//   orders/{id}            weekKey, monthId, mart, no, code, cost, sale, status, items, at, by
+//   orders/{id}            weekKey, monthId, mart, no, code, cost, sale, status, items, sent, note, day, at, by
 //   notes/{id}             weekKey, monthId, no, code, due, amount, note, collected, flagged, at, by
+//   prices/{id}            name, unit, cost, sale, at, by (the «តម្លៃលក់» page; owners and members only)
 //   settlements/{monthId}  closed, rows {seller: {advance, debt, note}}, deduct {seller: amount}
 //   members/{email}        role ("owner" | "member" | "viewer"), name, addedBy, at
 //   meta/bootstrap         owner: the email that claimed the shop
@@ -32,7 +33,8 @@ import {
   type Timestamp,
   type WriteBatch,
 } from "firebase/firestore";
-import type { Deleted, Item, Month, Note, Order, PayoutEntry, SettlementRow, Status, Week, WeekPay } from "./types";
+import { todayText } from "./format";
+import type { Deleted, Item, Month, Note, Order, PayoutEntry, PriceItem, SettlementRow, Status, Week, WeekPay } from "./types";
 
 // ---------- Document shapes ----------
 
@@ -72,6 +74,8 @@ export interface OrderDoc {
   status: Status;
   items: Item[];
   sent?: boolean; // sent to the customer; missing on orders from before = not sent
+  note?: string; // the shop's note on the order; missing = none
+  day?: string; // "04-11-2026"; missing on orders from before = the day of `at`
   at: number; // when it was added (ms), for a steady order
   by?: string;
 }
@@ -85,6 +89,14 @@ export interface NoteDoc {
   note: string;
   collected: boolean;
   flagged: boolean;
+  at: number;
+  by?: string;
+}
+export interface PriceDoc {
+  name: string;
+  unit: string;
+  cost: number;
+  sale: number;
   at: number;
   by?: string;
 }
@@ -120,6 +132,7 @@ export type HistoryKind =
   | "deduct"
   | "settlement"
   | "member"
+  | "price"
   | "sample";
 export interface HistoryDoc {
   at: number; // when it was done (ms, the device's clock: a change made offline keeps its own time)
@@ -127,7 +140,7 @@ export interface HistoryDoc {
   by: string; // email
   act: HistoryAct;
   kind: HistoryKind;
-  target: string; // order or note id, month id, week key, mart id, seller code, email; "weekKey|seller", "monthId|seller"
+  target: string; // order, note or price id, month id, week key, mart id, seller code, email; "weekKey|seller", "monthId|seller"
   title: string; // what it was called then: "#12 · ហេង3", "ខែតុលា 2026", a seller's name …
   monthId?: string;
   weekKey?: string;
@@ -173,6 +186,8 @@ export const toOrder = (id: string, d: OrderDoc): Order => ({
   status: d.status,
   items: d.items ?? [],
   sent: !!d.sent,
+  note: d.note ?? "",
+  day: d.day || (d.at ? todayText(new Date(d.at)) : ""),
 });
 export const toNote = (id: string, d: NoteDoc): Note => ({
   id,
@@ -184,13 +199,14 @@ export const toNote = (id: string, d: NoteDoc): Note => ({
   collected: d.collected,
   flagged: d.flagged,
 });
+export const toPrice = (id: string, d: PriceDoc): PriceItem => ({ id, name: d.name, unit: d.unit ?? "", cost: d.cost ?? 0, sale: d.sale ?? 0 });
 
 // ---------- Writes ----------
 
 const now = () => Date.now();
 
 // A new document id, known before anything is written.
-export const newId = (db: Firestore, coll: "orders" | "notes" | "history") => doc(collection(db, coll)).id;
+export const newId = (db: Firestore, coll: "orders" | "notes" | "prices" | "history") => doc(collection(db, coll)).id;
 
 // Saves a change in one batch, with its line in the history when there is one: both land, or neither does.
 function save(db: Firestore, log: Log | undefined, write: (b: WriteBatch) => void) {
@@ -331,6 +347,14 @@ export function addNote(db: Firestore, id: string, weekKey: string, n: Omit<Note
 }
 export const updateNote = (db: Firestore, id: string, patch: Partial<Omit<Note, "id">>, by: string, log?: Log) =>
   save(db, log, (b) => b.update(doc(db, "notes", id), { ...patch, by }));
+
+export function addPrice(db: Firestore, id: string, p: Omit<PriceItem, "id">, by: string, log?: Log) {
+  const data: PriceDoc = { name: p.name, unit: p.unit, cost: p.cost, sale: p.sale, at: now(), by };
+  return save(db, log, (b) => b.set(doc(db, "prices", id), data));
+}
+export const updatePrice = (db: Firestore, id: string, patch: Partial<Omit<PriceItem, "id">>, by: string, log?: Log) =>
+  save(db, log, (b) => b.update(doc(db, "prices", id), { ...patch, by }));
+export const deletePrice = (db: Firestore, id: string, log?: Log) => save(db, log, (b) => b.delete(doc(db, "prices", id)));
 
 export const setPayout = (db: Firestore, weekKey: string, seller: string, patch: Partial<PayoutEntry>, log?: Log) =>
   save(db, log, (b) => b.set(doc(db, "weeks", weekKey), { ...splitWeekKey(weekKey), payout: { [seller]: patch } }, { merge: true }));

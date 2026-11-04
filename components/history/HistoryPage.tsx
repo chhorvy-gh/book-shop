@@ -40,6 +40,7 @@ const ICON: Record<HistoryKind, IconName> = {
   deduct: "calendar",
   settlement: "calc",
   member: "user",
+  price: "tag",
   sample: "info",
 };
 

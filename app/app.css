@@ -23,13 +23,24 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 .page-loading { min-height: 50vh; display: grid; place-items: center; }
 
-/* ---------- Sidebar: who is signed in ---------- */
-.user-card { display: flex; align-items: center; gap: 10px; padding: 8px 8px 0; min-width: 0; }
+/* ---------- Who is signed in: top right of the content, or beside the brand on a narrow screen ---------- */
+.side-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.side-top .brand { flex: none; }
+.side-top .user-card { display: none; }
+.topbar { display: flex; justify-content: flex-end; margin-bottom: -8px; }
+.user-card {
+  display: flex; align-items: center; gap: 10px; min-width: 0; max-width: min(340px, 100%);
+  padding: 6px 6px 6px 8px; border-radius: 999px; background: var(--surface); border: 1px solid var(--sep);
+}
 .user-card .avatar { width: 32px; height: 32px; font-size: 13px; }
 .user-card .stack { flex: 1 1 auto; }
-.user-card .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-card .strong, .user-card .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 800px) {
-  .user-card { display: none; }
+  .topbar { display: none; }
+  .side-top .user-card { display: flex; flex: 0 1 auto; }
+}
+@media (max-width: 420px) {
+  .side-top .user-card .stack { display: none; }
 }
 
 /* ---------- Status line under a page's period bar ---------- */
@@ -90,6 +101,9 @@
 .member-list li:first-child { border-top: 0; }
 .member-list .stack { flex: 1 1 auto; }
 .member-list .member-seller { width: auto; max-width: 200px; height: 34px; font-size: 13px; }
+/* Over five people (AccountPage caps the height at five rows): the rest scroll inside, and a line under the list shows
+   it goes on. The padding keeps the ដក buttons clear of the scrollbar. */
+.member-list.is-capped { overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding-right: 8px; border-bottom: 1px solid var(--sep); }
 
 /* ---------- Date boxes and their calendar (components/DateField.tsx) ---------- */
 .date-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; cursor: pointer; }
@@ -144,6 +158,49 @@
 }
 .cal-foot .field-link { font-size: 13px; }
 .cal-foot .field-link:disabled { color: var(--muted); cursor: not-allowed; text-decoration: none; }
+
+/* ---------- Sale prices (components/prices/PricesPage.tsx): name, unit, cost, sale and the button in a row ---------- */
+.price-grid {
+  display: grid; gap: 12px; align-items: end;
+  grid-template-columns: minmax(160px, 2fr) minmax(90px, 1fr) minmax(110px, 1fr) minmax(110px, 1fr) auto;
+}
+.price-grid.in-dialog { grid-template-columns: 1fr 1fr; }
+@media (max-width: 800px) {
+  .price-grid { grid-template-columns: 1fr 1fr; }
+  .price-grid > .btn { grid-column: 1 / -1; }
+}
+
+/* ---------- Every dialog's × in the top corner; the heading row leaves room for it ---------- */
+.dialog-close {
+  position: absolute; top: 14px; right: 14px; z-index: 1;
+  width: 36px; height: 36px; display: grid; place-items: center; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer;
+}
+.dialog-close:hover { background: var(--default-soft); color: var(--fg); }
+.dialog-close:focus-visible { outline: none; box-shadow: var(--ring); }
+.dialog form > :first-child { padding-right: 36px; }
+
+/* ---------- A banner for something to fix before going on (the calculator's prices that are not numbers) ---------- */
+.banner-danger { background: var(--danger-soft); color: var(--danger-soft-fg); }
+
+/* ---------- Profit by seller: the month mart by mart, one table each, side by side when they fit ---------- */
+.mart-sheets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 16px; }
+.mart-sheet { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.mart-sheet h3 { margin: 0; font-size: 14px; }
+.mart-sheet .table-wrap { border: 1px solid var(--sep); border-radius: 12px; }
+.mart-sheet table.data { font-variant-numeric: tabular-nums; }
+.mart-sheet table.data td { padding-top: 7px; padding-bottom: 7px; }
+.mart-sheet table.data th:first-child, .mart-sheet table.data td:first-child { padding-left: 14px; }
+.mart-sheet table.data th:last-child, .mart-sheet table.data td:last-child { padding-right: 14px; }
+
+/* ---------- An order's note in the sales table: red text, left-aligned and never struck through ---------- */
+.cell-input.order-note { min-width: 0; text-align: left; text-overflow: ellipsis; font-variant-numeric: normal; font-size: 13px; color: var(--danger-soft-fg); }
+.cell-input.order-note::placeholder { color: var(--muted); }
+table.data tbody tr.is-cancelled .cell-input.order-note { text-decoration: none; }
+table.data tbody tr.is-collected .cell-input.order-note { color: var(--danger-soft-fg); }
+/* The same note on the pay-later notes page, above that note's own: one line, cut off with … (hover for all of it). */
+.order-note-line { display: block; padding: 2px 10px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--danger-soft-fg); }
+.view-note { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); color: var(--danger-soft-fg); font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---------- Order view (the sales table's «មើល») ---------- */
 .view-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

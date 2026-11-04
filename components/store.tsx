@@ -8,15 +8,28 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { GoogleAuthProvider, onAuthStateChanged, signInWithEmailAndPassword, signInWithPopup, signOut as fbSignOut, type User } from "firebase/auth";
 import { collection, doc, getDoc, limit, onSnapshot, orderBy, query, where, type Firestore, type QuerySnapshot } from "firebase/firestore";
 import * as dbw from "@/lib/db";
-import type { HistoryAct, HistoryDoc, Log, MemberDoc, MonthDoc, NoteDoc, OrderDoc, SettingsDoc, SettlementDoc, WeekDoc } from "@/lib/db";
+import type { HistoryAct, HistoryDoc, Log, MemberDoc, MonthDoc, NoteDoc, OrderDoc, PriceDoc, SettingsDoc, SettlementDoc, WeekDoc } from "@/lib/db";
 import { firebase } from "@/lib/firebase";
 import { prefixOf } from "@/lib/format";
-import { KIND, findNote, findOrder, monthOfId, noteFields, noteTitle, orderFields, orderTitle, pick as pickFields, same } from "@/lib/history";
+import {
+  KIND,
+  findNote,
+  findOrder,
+  monthOfId,
+  noteFields,
+  noteTitle,
+  orderFields,
+  orderTitle,
+  pick as pickFields,
+  priceFields,
+  priceTitle,
+  same,
+} from "@/lib/history";
 import { bookMonths, emptyState, findMonth, isLoaded, martLabel, monthId, monthLabel, monthPayout, picked, weekEnd, weekLabel, weekRange } from "@/lib/periods";
 import { loadSample } from "@/lib/sample";
 import { ordersOf, trashEntries } from "@/lib/trash";
-import { loginError, shownName, usernameEmail } from "@/lib/usernames";
-import type { Note, Order, PayoutEntry, SaleBookState, Seller, SettlementRow, TrashRef, Week } from "@/lib/types";
+import { loginError, shownName, usernameEmail, usernameOf } from "@/lib/usernames";
+import type { Note, Order, PayoutEntry, PriceItem, SaleBookState, Seller, SettlementRow, TrashRef, Week } from "@/lib/types";
 
 export type Role = MemberDoc["role"];
 // locked = signed in, but the database refuses to say who is a member (its security rules are not published yet).
@@ -41,7 +54,7 @@ export interface SaleBook {
 
   // ----- Signing in -----
   signIn: () => Promise<void>;
-  // A viewer's username login; resolves to an error to show, or "" once signed in.
+  // A username login (made on the account page, for any role); resolves to an error to show, or "" once signed in.
   signInWithUsername: (username: string, password: string) => Promise<string>;
   signOut: () => Promise<void>;
   claimShop: () => Promise<void>;
@@ -89,6 +102,13 @@ export interface SaleBook {
   addNote: (weekKey: string, note: Omit<Note, "id">) => string;
   updateNote: (id: string, patch: Partial<Omit<Note, "id">>) => void;
 
+  // ----- «តម្លៃលក់» (sale prices); the list itself comes from usePrices() -----
+  // Returns the new item's id at once.
+  addPrice: (item: Omit<PriceItem, "id">) => string;
+  // was = the item as the page shows it, for its line in the history.
+  updatePrice: (was: PriceItem, patch: Partial<Omit<PriceItem, "id">>) => void;
+  deletePrice: (item: PriceItem) => void;
+
   // ----- Payout, monthly summary, month-end -----
   setPayout: (weekKey: string, seller: string, patch: Partial<PayoutEntry>) => void;
   setMonthDeduct: (monthId: string, seller: string, value: string) => void;
@@ -121,8 +141,14 @@ export function useSaleBook() {
 
 // A viewer only looks at the sales sheet: the pages hide everything that changes the book.
 export const useReadOnly = () => useSaleBook().access.role === "viewer";
-// The one page a viewer may open.
-export const VIEWER_HOME = "/sales";
+// Where a login limited to some pages lands, and goes when it opens any other page: the sales sheet.
+export const SALES_HOME = "/sales";
+// A member who signs in with a username (made on the account page) works on the quick calculator and the sales sheet
+// only, with every right there; firestore.rules keep them to what those two pages change.
+export const salesOnly = (access: Access) => access.role === "member" && usernameOf(access.email) !== null;
+// The pages a login may open, or null for every page.
+export const pagesOf = (access: Access): string[] | null =>
+  access.role === "viewer" ? [SALES_HOME] : salesOnly(access) ? ["/calculator", SALES_HOME] : null;
 
 const PICK_KEY = "salebook.pick";
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -211,6 +237,8 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
   const viewer = access.role === "viewer";
   // A viewer limited to one seller sees that seller's orders only: the book is built without anyone else's.
   const onlySeller = viewer ? (access.seller ?? "") : "";
+  // Viewers and sales-only members: only what the sales sheet needs is loaded (the database refuses them the rest).
+  const sheetOnly = viewer || salesOnly(access);
 
   // ----- The book's documents (members only) -----
   useEffect(() => {
@@ -222,8 +250,9 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
       onSnapshot(collection(db, "months"), (s) => setMonths(rows<MonthDoc>(s)), fail),
       onSnapshot(collection(db, "weeks"), (s) => setWeeks(rows<WeekDoc>(s)), fail),
     ];
-    // A viewer sees the sales sheet only; the database does not let them read notes or month-end settlements.
-    if (!viewer) {
+    // Viewers and sales-only members use the sales sheet only; the database does not let them read notes or
+    // month-end settlements.
+    if (!sheetOnly) {
       stops.push(
         onSnapshot(collection(db, "notes"), (s) => setNotes(rows<NoteDoc>(s)), fail),
         onSnapshot(collection(db, "settlements"), (s) => setSettlements(rows<SettlementDoc>(s)), fail),
@@ -232,7 +261,7 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
       );
     }
     return () => stops.forEach((stop) => stop());
-  }, [member, viewer]);
+  }, [member, sheetOnly]);
 
   // The months in the book (deleted ones left out), oldest first.
   const monthList = useMemo(
@@ -270,10 +299,10 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadKey stands for loadIds
   }, [member, months === null, loadKey]);
 
-  // What a viewer never loads counts as none.
-  const noteDocs = viewer ? NONE : notes;
-  const settlementDocs = viewer ? NONE : settlements;
-  const unpaidDocs = viewer ? NONE : unpaid;
+  // What is never loaded for them counts as none.
+  const noteDocs = sheetOnly ? NONE : notes;
+  const settlementDocs = sheetOnly ? NONE : settlements;
+  const unpaidDocs = sheetOnly ? NONE : unpaid;
   const ready =
     member && settings !== null && months !== null && weeks !== null && noteDocs !== null && settlementDocs !== null && unpaidDocs !== null && orders !== null;
 
@@ -346,8 +375,9 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
   // A closed month's saved totals follow later changes to its orders (only from server data, never a partial cache).
   const lastResave = useRef("");
   useEffect(() => {
-    // Not for a viewer: they cannot save, and may see only some of the orders.
-    if (!ready || !orders?.server || viewer) return;
+    // Not for a viewer (they cannot save, and may see only some of the orders) nor a sales-only member (they have
+    // no notes to work the totals out with, and the database keeps them from the month's saved totals).
+    if (!ready || !orders?.server || sheetOnly) return;
     const { db } = firebase();
     for (const mo of state.months) {
       if (!mo.closed || mo.historyOnly || !isLoaded(state, mo)) continue;
@@ -359,7 +389,7 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
         run(dbw.resaveClosed(db, monthId(mo), pay));
       }
     }
-  }, [ready, orders?.server, state, run, viewer]);
+  }, [ready, orders?.server, state, run, sheetOnly]);
 
   const book = useMemo<SaleBook>(() => {
     const db = (): Firestore => firebase().db;
@@ -557,6 +587,16 @@ export function SaleBookProvider({ children }: { children: React.ReactNode }) {
         run(dbw.updateNote(db(), id, patch, by, edit(place, f ? { ...f.note } : {}, patch)));
       },
 
+      addPrice: (item) => {
+        const id = dbw.newId(db(), "prices");
+        run(dbw.addPrice(db(), id, item, by, line({ kind: "price", target: id, title: priceTitle(item) }, "add", { after: priceFields(item) })));
+        return id;
+      },
+      updatePrice: (was, patch) =>
+        run(dbw.updatePrice(db(), was.id, patch, by, edit({ kind: "price", target: was.id, title: priceTitle(was) }, { ...was }, patch))),
+      deletePrice: (item) =>
+        run(dbw.deletePrice(db(), item.id, line({ kind: "price", target: item.id, title: priceTitle(item) }, "delete", { before: priceFields(item) }))),
+
       setPayout: (key, seller, patch) => {
         // A seller's entry is saved a field at a time, so any field may still be missing.
         const saved: Partial<PayoutEntry> | undefined = state.payout[key]?.[seller];
@@ -612,6 +652,26 @@ export function useMembers(enabled: boolean) {
     );
   }, [enabled]);
   return list;
+}
+
+// «តម្លៃលក់», by name, for owners and members (firestore.rules keep cost prices from viewers, as the sales sheet does).
+// Listened to only while the page is open; error = why the database refused it.
+export function usePrices(enabled: boolean) {
+  const [list, setList] = useState<PriceItem[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!enabled) return;
+    return onSnapshot(
+      collection(firebase().db, "prices"),
+      (s) => {
+        const items = s.docs.map((d) => dbw.toPrice(d.id, d.data() as PriceDoc));
+        setList(items.sort((a, b) => a.name.localeCompare(b.name, "km") || a.unit.localeCompare(b.unit, "km")));
+        setError("");
+      },
+      (e) => setError(message(e)),
+    );
+  }, [enabled]);
+  return { list, error };
 }
 
 // «ប្រវត្តិកែប្រែ», newest first, for owners and members (viewers cannot read it): the latest HISTORY_PAGE lines, and

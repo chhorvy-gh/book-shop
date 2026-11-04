@@ -11,6 +11,7 @@ export interface NoteItem extends Note {
   seller: string; // "" when no seller has the code's letters
   info: DueInfo;
   left: number | null; // days to the due day, null without one
+  orderNote: string; // the note on the order itself in the sales sheet (same week and code), "" when none
 }
 
 export type Lookup = (code: string) => string;
@@ -24,12 +25,18 @@ export function sellerLookup(sellers: Seller[]): Lookup {
   return (code) => map.get(prefixOf(code)) ?? "";
 }
 
+// The note written on the order with this code in the week's sales sheet, any mart; "" when there is none.
+const orderNoteOf = (s: SaleBookState, key: string, code: string) =>
+  Object.values(s.sheets[key] ?? {})
+    .flat()
+    .find((o) => o.code === code)?.note ?? "";
+
 // Every note of every week, oldest month first, in the order they were added.
 export function noteItems(s: SaleBookState, today: Date, sellerOf: Lookup): NoteItem[] {
   return allWeeks(s).flatMap(({ mo, w, key }) =>
     (s.notes[key] ?? []).map((n) => {
       const info = dueInfo(n.due, mo, today);
-      return { ...n, key, mo, w, seller: sellerOf(n.code), info, left: daysLeft(info, today) };
+      return { ...n, key, mo, w, seller: sellerOf(n.code), info, left: daysLeft(info, today), orderNote: orderNoteOf(s, key, n.code) };
     }),
   );
 }

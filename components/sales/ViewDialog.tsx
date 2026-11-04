@@ -70,6 +70,13 @@ function ViewForm({ order, meta, seller, onClose, onEdit, onPrint }: Props & { o
           {order.status !== "x" && <span className={chipClass(order.sent ? "accent" : "default")}>{order.sent ? SENT.yes : SENT.no}</span>}
         </span>
       </div>
+      {/* The note is the shop's own: shown to those who can edit, like the table shows it. */}
+      {onEdit && order.note && (
+        <p className="view-note">
+          <span className="muted">កំណត់ចំណាំ៖ </span>
+          {order.note}
+        </p>
+      )}
       <div className="view-items-wrap">
         <table className="view-items">
           <thead>

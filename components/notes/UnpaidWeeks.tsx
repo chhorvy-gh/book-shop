@@ -1,7 +1,8 @@
 "use client";
 
-// Orders still unpaid on the sales sheet, one fold per week of the period on screen. From here an order can be
-// switched between unpaid and paid, or turned into a pay-later note.
+// Orders still unpaid on the sales sheet, one fold per week of the month on screen (every month's with «គ្រប់ខែ»),
+// whichever week is picked. From here an order can be
+// switched between unpaid and paid, have its note (the sales sheet's) written or changed, or turned into a pay-later note.
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { fmt } from "@/lib/format";
@@ -9,6 +10,7 @@ import type { Lookup } from "@/lib/logic/notes";
 import { bookMonths, martLabel, monthId, monthLabel, weekKey, weekLabel, weekOrders, weekRange } from "@/lib/periods";
 import type { Month, Order, Week } from "@/lib/types";
 import { Icon } from "../icons";
+import { NoteCell } from "../sales/OrdersTable";
 import { useSaleBook } from "../store";
 import { Tabs } from "../ui";
 import { SellerChip } from "./parts";
@@ -32,7 +34,9 @@ export default function UnpaidWeeks({
   const router = useRouter();
   // Which sheet the list shows: "all" or a mart id.
   const [martPick, setMart] = useState("all");
-  // A week opens by itself when it is the only one shown; after that it stays as it was left.
+  // Every week of the month is listed. The week picked on the page starts open, showing its orders, and the others start
+  // folded to their heads (with the whole month picked, every week starts open); one folded or opened by hand stays as
+  // it was left.
   const [open, setOpen] = useState<Record<string, boolean>>({});
   // ស្ថានភាព switches an order between មិនទាន់បង់ and បានបង់ on the sales sheet itself. An order marked paid here
   // stays in its week's list (in green) until the page is left, so a wrong click can be undone. The order is kept
@@ -48,7 +52,6 @@ export default function UnpaidWeeks({
   for (const id of state.marts) counts[id] = 0;
   const weeks = months.flatMap((mo) =>
     mo.weeks
-      .filter((w) => !week || w.no === week.no)
       .map((w) => {
         const key = weekKey(mo, w);
         const live = weekOrders(state, mo, w);
@@ -141,8 +144,8 @@ export default function UnpaidWeeks({
               <details
                 key={key}
                 className="fold"
-                open={open[key] ?? weeks.length === 1}
-                // Also fires when a week opens by itself, so it then stays open, as in the mockup.
+                open={open[key] ?? (!week || w.no === week.no)}
+                // Also fires when a week opens by itself, so it then stays open.
                 onToggle={(e) => {
                   const now = e.currentTarget.open;
                   setOpen((o) => (o[key] === now ? o : { ...o, [key]: now }));
@@ -153,7 +156,7 @@ export default function UnpaidWeeks({
                   {head}
                 </summary>
                 <div className="table-wrap">
-                  <table className="data fixed" style={{ minWidth: 720 }}>
+                  <table className="data fixed" style={{ minWidth: 900 }}>
                     <colgroup>
                       <col style={{ width: 60 }} />
                       <col style={{ width: 76 }} />
@@ -162,6 +165,7 @@ export default function UnpaidWeeks({
                       <col style={{ width: 110 }} />
                       <col style={{ width: 120 }} />
                       <col />
+                      <col style={{ width: 160 }} />
                     </colgroup>
                     <thead>
                       <tr>
@@ -173,6 +177,15 @@ export default function UnpaidWeeks({
                           លុយលក់
                         </th>
                         <th scope="col">ស្ថានភាព</th>
+                        <th scope="col" title="កំណត់ចំណាំរបស់ការបញ្ជាទិញ ដូចក្នុងតារាងលក់">
+                          <span className="th-edit">
+                            កំណត់ចំណាំ{" "}
+                            <svg className="icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M4 20h4L19 9l-4-4L4 16z" />
+                              <path d="M13.5 6.5l4 4" />
+                            </svg>
+                          </span>
+                        </th>
                         <th scope="col">
                           <span className="sr-only">សកម្មភាព</span>
                         </th>
@@ -203,6 +216,7 @@ export default function UnpaidWeeks({
                                 {label}
                               </button>
                             </td>
+                            <NoteCell o={o} onSave={(note) => updateOrder(o.id, { note })} />
                             <td>
                               <div className="row-actions">
                                 {noted.has(`${key}|${o.code}`) ? (

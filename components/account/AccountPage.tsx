@@ -1,8 +1,8 @@
 "use client";
 
 // Who is signed in, signing out, and (for owners) who may use the shop. Not in the mockup: the app's own page,
-// drawn with the mockup's cards, fields and lists. A viewer can be given a Google account, or a username and password
-// made here (lib/usernames.ts).
+// drawn with the mockup's cards, fields and lists. Anyone, an owner too, can be given a Google account, or a username and
+// password made here (lib/usernames.ts); a member with a username works on the quick calculator and the sales sheet only.
 import { useState } from "react";
 import { createLogin } from "@/lib/firebase";
 import { initialOf } from "@/lib/format";
@@ -18,8 +18,34 @@ const ROLE_HELP: Record<Role, string> = {
   owner: "ដូចអ្នកប្រើ ហើយបន្ថែម ឬដកអ្នកប្រើបាន",
   viewer: "មើលតែតារាងលក់ប៉ុណ្ណោះ · មិនអាចបញ្ចូល កែ ឬលុប",
 };
+// A member who signs in with a username (store.tsx salesOnly): every right, on these two pages only.
+const SALES_ONLY = "តែគណនារហ័ស និងតារាងលក់";
+const SALES_ONLY_HELP = `បញ្ចូល កែ និងលុបបានគ្រប់យ៉ាង ${SALES_ONLY} · មិនឃើញទំព័រផ្សេង`;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type Login = "google" | "username";
+
+// The people list shows its first SHOW rows and scrolls for the rest: it is capped at the height of those rows,
+// borders included (offsetTop ignores the list's scrolling). Measured again on every render (people added, removed or
+// changed) and when the list changes width, since rows wrap to two lines on a phone.
+const SHOW = 5;
+function capRows(ul: HTMLUListElement) {
+  const fit = () => {
+    const capped = ul.children.length > SHOW;
+    ul.classList.toggle("is-capped", capped); // first, as its padding changes where the rows wrap
+    const first = ul.firstElementChild as HTMLElement | null;
+    const last = ul.children[SHOW - 1] as HTMLElement | undefined;
+    ul.style.maxHeight = capped && first && last ? `${last.offsetTop + last.offsetHeight - first.offsetTop + ul.offsetHeight - ul.clientHeight}px` : "";
+  };
+  fit();
+  let width = ul.clientWidth;
+  const watch = new ResizeObserver(() => {
+    if (ul.clientWidth === width) return; // its own height change, from fit
+    width = ul.clientWidth;
+    fit();
+  });
+  watch.observe(ul);
+  return () => watch.disconnect();
+}
 
 export default function AccountPage() {
   const { state, access, signOut, addMember, removeMember, setViewerSeller } = useSaleBook();
@@ -31,9 +57,9 @@ export default function AccountPage() {
   const owner = access.role === "owner";
   const members = useMembers(owner);
   const [role, setRole] = useState<Role>("member");
-  // How a new viewer signs in: their Google account, or a username and password made here.
+  // How the new person signs in, whatever their role: their Google account, or a username and password made here.
   const [login, setLogin] = useState<Login>("google");
-  const byUsername = role === "viewer" && login === "username";
+  const byUsername = login === "username";
   // A viewer may see every seller's orders, or one seller's only (their code; "" = every seller).
   const [seller, setSeller] = useState("");
   const onlySeller = role === "viewer" ? seller : "";
@@ -69,10 +95,10 @@ export default function AccountPage() {
       setUsername("");
       setPassword("");
       setShowPassword(false);
-      const scope = onlySeller ? ` · មើលតែ ${sellerLabel(onlySeller)}` : "";
+      const scope = onlySeller ? ` · មើលតែ ${sellerLabel(onlySeller)}` : byUsername && role === "member" ? ` · ${SALES_ONLY}` : "";
       setNote(
         byUsername
-          ? `បានបង្កើតគណនី «${u}» · ${ROLE.viewer}${scope} · ចូលនៅទំព័រចូល ដោយឈ្មោះ «${u}» និងពាក្យសម្ងាត់ដែលបានកំណត់។`
+          ? `បានបង្កើតគណនី «${u}» · ${ROLE[role]}${scope} · ចូលនៅទំព័រចូល ដោយឈ្មោះ «${u}» និងពាក្យសម្ងាត់ដែលបានកំណត់។`
           : `បានបន្ថែម ${target} · ${ROLE[role]}${scope} · ពេលចូលដោយ Google អាចប្រើបានភ្លាម។`,
       );
     } catch (err) {
@@ -106,7 +132,7 @@ export default function AccountPage() {
         <div className="card-head">
           <div className="stack">
             <h2>អ្នកដែលអាចប្រើសៀវភៅលក់</h2>
-            <span className="sub">ចូលដោយគណនី Google ឬឈ្មោះអ្នកប្រើ (សម្រាប់អ្នកមើល) · តែអ្នកក្នុងបញ្ជីនេះប៉ុណ្ណោះ ដែលប្រើបាន</span>
+            <span className="sub">ចូលដោយគណនី Google ឬឈ្មោះអ្នកប្រើ · តែអ្នកក្នុងបញ្ជីនេះប៉ុណ្ណោះ ដែលប្រើបាន</span>
           </div>
           <span className="chip chip-accent">{access.role ? ROLE[access.role] : ""}</span>
         </div>
@@ -119,39 +145,40 @@ export default function AccountPage() {
           <>
             <form noValidate onSubmit={add} className="member-form">
               <div className="member-form-row">
-                <span id="member-role-label">សិទ្ធិ</span>
-                <Tabs
-                  labelledBy="member-role-label"
+                <label htmlFor="member-role">សិទ្ធិ</label>
+                <select
+                  className="select"
+                  id="member-role"
+                  style={{ width: "auto", minWidth: 200 }}
                   value={role}
-                  onPick={(r) => {
-                    setRole(r);
+                  onChange={(e) => {
+                    setRole(e.target.value as Role);
+                    changed();
+                  }}
+                >
+                  {(["member", "viewer", "owner"] as const).map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE[r]}
+                    </option>
+                  ))}
+                </select>
+                <span className="sub">{byUsername && role === "member" ? SALES_ONLY_HELP : ROLE_HELP[role]}</span>
+              </div>
+              <div className="member-form-row">
+                <span id="member-login-label">ចូលដោយ</span>
+                <Tabs<Login>
+                  labelledBy="member-login-label"
+                  value={login}
+                  onPick={(l) => {
+                    setLogin(l);
                     changed();
                   }}
                   items={[
-                    { key: "member", label: ROLE.member },
-                    { key: "viewer", label: ROLE.viewer },
-                    { key: "owner", label: ROLE.owner },
+                    { key: "google", label: "Gmail" },
+                    { key: "username", label: "ឈ្មោះ និងពាក្យសម្ងាត់" },
                   ]}
                 />
-                <span className="sub">{ROLE_HELP[role]}</span>
               </div>
-              {role === "viewer" && (
-                <div className="member-form-row">
-                  <span id="member-login-label">ចូលដោយ</span>
-                  <Tabs<Login>
-                    labelledBy="member-login-label"
-                    value={login}
-                    onPick={(l) => {
-                      setLogin(l);
-                      changed();
-                    }}
-                    items={[
-                      { key: "google", label: "Gmail" },
-                      { key: "username", label: "ឈ្មោះ និងពាក្យសម្ងាត់" },
-                    ]}
-                  />
-                </div>
-              )}
               {role === "viewer" && (
                 <div className="member-form-row">
                   <label htmlFor="member-seller">មើលទិន្នន័យ</label>
@@ -258,7 +285,7 @@ export default function AccountPage() {
                 {note}
               </p>
             )}
-            <ul className="member-list">
+            <ul className="member-list" ref={(ul) => (ul ? capRows(ul) : undefined)}>
               {(members ?? []).map((m) => {
                 const name = usernameOf(m.email);
                 return (
@@ -271,6 +298,7 @@ export default function AccountPage() {
                       <span className="sub">
                         {ROLE[m.data.role]}
                         {m.data.role === "viewer" ? (m.data.seller ? ` · មើលតែ ${sellerLabel(m.data.seller)}` : " · មើលអ្នកលក់ទាំងអស់") : ""}
+                        {m.data.role === "member" && name ? ` · ${SALES_ONLY}` : ""}
                         {name ? " · ចូលដោយឈ្មោះ និងពាក្យសម្ងាត់" : ""}
                         {m.email === access.email ? " · អ្នក" : ""}
                       </span>

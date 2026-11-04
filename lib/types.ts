@@ -21,6 +21,8 @@ export interface Order {
   status: Status;
   items: Item[];
   sent?: boolean; // the goods have gone out to the customer (បានផ្ញើ); apart from being paid
+  note?: string; // the shop's own note on the order (កំណត់ចំណាំ); never on the invoice
+  day?: string; // the order's day, "04-11-2026": the quick calculator's day when it came from there, else the day it was added
 }
 
 // A seller and the letters their order codes start with: code ហេង → ហេង1, ហេង2 …
@@ -85,6 +87,16 @@ export interface Note {
   note: string;
   collected: boolean;
   flagged: boolean;
+}
+
+// An item on «តម្លៃលក់» (sale prices): what the shop pays for it and what it sells it for, per unit.
+// unit is "" when the price is not per kilo, piece … ("ស្លឹកគ្រៃ"). id is the Firestore document id.
+export interface PriceItem {
+  id: string;
+  name: string;
+  unit: string;
+  cost: number;
+  sale: number;
 }
 
 // ---------- «បានលុបថ្មីៗ» (recently deleted) ----------

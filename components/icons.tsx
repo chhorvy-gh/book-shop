@@ -27,6 +27,7 @@ const PATHS = {
   note: '<path d="M5 4h14v11l-5 5H5z"/><path d="M14 20v-5h5M8.5 9h7M8.5 12.5h4"/>',
   flag: '<path d="M5 21V4"/><path d="M5 4h12l-2.5 4L17 12H5"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  tag: '<path d="M3.5 4.5v7.1a1 1 0 0 0 .3.7l8.4 8.4a1 1 0 0 0 1.4 0l7.1-7.1a1 1 0 0 0 0-1.4l-8.4-8.4a1 1 0 0 0-.7-.3H4.5a1 1 0 0 0-1 1z"/><circle cx="8.2" cy="8.2" r="1.6"/>',
   print: '<path d="M7 9V3.5h10V9"/><rect x="3.5" y="9" width="17" height="8" rx="2"/><path d="M7 14h10v6.5H7z"/><path d="M17 12h.01"/>',
   month: '<rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/>',
   user: '<circle cx="12" cy="8.5" r="3.5"/><path d="M5 20c.8-3.4 3.6-5.5 7-5.5s6.2 2.1 7 5.5"/>',

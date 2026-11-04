@@ -6,7 +6,7 @@
 // are plain text, with no tick boxes and no cost price or profit, and each row only opens «មើល» or prints.
 import { useState } from "react";
 import { fmt, latinDigits, prefixOf } from "@/lib/format";
-import { SENT, STATUS, findCode, totals } from "@/lib/orders";
+import { NOTE_MAX, SENT, STATUS, findCode, tidyNote, totals } from "@/lib/orders";
 import type { Mart, Order } from "@/lib/types";
 import { Icon } from "../icons";
 import { MoneyCell, Tabs, chipClass, moveInColumn } from "../ui";
@@ -31,7 +31,7 @@ interface Props {
   page: number;
   onPage: (p: number) => void;
   newId: string | null;
-  onChange: (o: Order, patch: Partial<Pick<Order, "code" | "cost" | "sale">>) => void;
+  onChange: (o: Order, patch: Partial<Pick<Order, "code" | "cost" | "sale" | "note">>) => void;
   onToggleStatus: (o: Order) => void;
   onToggleSent: (o: Order) => void;
   onView: (o: Order) => void;
@@ -118,6 +118,7 @@ function Row({ o, props, ticked }: { o: Order; props: Props; ticked: boolean }) 
         />
       </td>
       <td className="muted">{o.no}</td>
+      <DayCell o={o} />
       <td className="cell">
         <input
           className={`cell-input quiet code${codeEdited && !problem ? " is-edited" : ""}${problem ? " is-invalid" : ""}`}
@@ -175,6 +176,7 @@ function Row({ o, props, ticked }: { o: Order; props: Props; ticked: boolean }) 
         </button>
       </td>
       <SentCell o={o} onToggle={() => props.onToggleSent(o)} />
+      <NoteCell o={o} onSave={(note) => props.onChange(o, { note })} />
       <td>
         <div className="row-actions tight">
           <button type="button" className="row-btn" aria-label={`មើលការបញ្ជាទិញ ${o.no}`} onClick={() => props.onView(o)}>
@@ -205,6 +207,7 @@ function ReadRow({ o, props }: { o: Order; props: Props }) {
     <tr id={`order-${o.id}`} className={cancelled ? "is-cancelled" : undefined}>
       <td className="muted">{o.no}</td>
       {props.martOf && <td className="muted">{props.martOf.get(o.id) ?? ""}</td>}
+      <DayCell o={o} />
       <td className="strong">{o.code || "—"}</td>
       <td>
         <SellerChip name={props.names.get(prefixOf(o.code))} cancelled={cancelled} />
@@ -227,6 +230,52 @@ function ReadRow({ o, props }: { o: Order; props: Props }) {
       </td>
     </tr>
   );
+}
+
+// The order's note, typed right in the table: saved when the cell is left (Enter and the arrows move to the next row's
+// note, which leaves it); Esc puts back what was there. A cancelled order keeps its note open, to say why. Hovering
+// shows a long note in full. The pay-later page's unpaid list edits the same note with it.
+export function NoteCell({ o, onSave }: { o: Order; onSave: (note: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const saved = o.note ?? "";
+  const commit = () => {
+    if (draft === null) return;
+    const note = tidyNote(draft);
+    if (note !== saved) onSave(note);
+    setDraft(null);
+  };
+  return (
+    <td className="cell">
+      <input
+        className="cell-input quiet order-note"
+        type="text"
+        autoComplete="off"
+        maxLength={NOTE_MAX}
+        data-field="note"
+        placeholder="—"
+        value={draft ?? saved}
+        aria-label={`កំណត់ចំណាំ ការបញ្ជាទិញ ${o.no}`}
+        title={draft === null && saved ? saved : undefined}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+            e.preventDefault();
+            moveInColumn(e.currentTarget, e.key === "ArrowUp" ? -1 : 1);
+          } else if (e.key === "Escape") {
+            setDraft(null);
+            const el = e.currentTarget;
+            requestAnimationFrame(() => el.blur());
+          }
+        }}
+      />
+    </td>
+  );
+}
+
+// The order's day in full ("04-11-2026"). The calculator's day for an order made from there.
+function DayCell({ o }: { o: Order }) {
+  return <td className="muted num">{o.day || "—"}</td>;
 }
 
 // Sent or not: a chip, which an editor clicks to switch. A cancelled order goes nowhere.
@@ -330,11 +379,12 @@ export default function OrdersTable(props: Props) {
         </div>
       )}
       <div className="table-wrap">
-        <table className="data fixed" style={{ minWidth: readOnly ? 770 + martCol * 90 : 994 }}>
+        <table className="data fixed" style={{ minWidth: readOnly ? 880 + martCol * 90 : 1284 }}>
           <colgroup>
             {!readOnly && <col style={{ width: 44 }} />}
             <col style={{ width: 60 }} />
             {martCol > 0 && <col style={{ width: 90 }} />}
+            <col style={{ width: 110 }} />
             <col style={{ width: 108 }} />
             <col style={{ width: 124 }} />
             {!readOnly && <col />}
@@ -342,6 +392,7 @@ export default function OrdersTable(props: Props) {
             {!readOnly && <col style={{ width: 100 }} />}
             <col style={{ width: 100 }} />
             <col style={{ width: 110 }} />
+            {!readOnly && <col style={{ width: 180 }} />}
             <col style={{ width: 208 }} />
           </colgroup>
           <thead>
@@ -366,6 +417,9 @@ export default function OrdersTable(props: Props) {
               )}
               <th scope="col">លេខ</th>
               {martCol > 0 && <th scope="col">Mart</th>}
+              <th scope="col" title="ថ្ងៃនៃការបញ្ជាទិញ · ថ្ងៃគណនា បើមកពីគណនារហ័ស">
+                ថ្ងៃ
+              </th>
               <th scope="col">
                 <span className="th-edit">កូដ {editIcon}</span>
               </th>
@@ -385,6 +439,11 @@ export default function OrdersTable(props: Props) {
               )}
               <th scope="col">ស្ថានភាព</th>
               <th scope="col">ការផ្ញើ</th>
+              {!readOnly && (
+                <th scope="col">
+                  <span className="th-edit">កំណត់ចំណាំ {EDIT_ICON}</span>
+                </th>
+              )}
               <th scope="col">
                 <span className="sr-only">សកម្មភាព</span>
               </th>
@@ -395,7 +454,7 @@ export default function OrdersTable(props: Props) {
               rows.map((o) => (readOnly ? <ReadRow key={o.id} o={o} props={props} /> : <Row key={o.id} o={o} props={props} ticked={props.selected.has(o.id)} />))
             ) : (
               <tr className="empty">
-                <td colSpan={readOnly ? 7 + martCol : 10}>
+                <td colSpan={readOnly ? 8 + martCol : 12}>
                   {orders.length ? "គ្មានការបញ្ជាទិញត្រូវនឹងតម្រងនេះទេ" : readOnly ? "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ" : "បញ្ជីនេះមិនទាន់មានការបញ្ជាទិញ · បញ្ចូលការបញ្ជាទិញដំបូងនៅខាងលើ"}
                 </td>
               </tr>
@@ -403,11 +462,11 @@ export default function OrdersTable(props: Props) {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={readOnly ? 3 + martCol : 4}>សរុបគ្រប់ទំព័រ · {sum.count} ការបញ្ជាទិញ</td>
+              <td colSpan={readOnly ? 4 + martCol : 5}>សរុបគ្រប់ទំព័រ · {sum.count} ការបញ្ជាទិញ</td>
               {!readOnly && <td className="r">{fmt(sum.cost)}</td>}
               <td className="r">{fmt(sum.sale)}</td>
               {!readOnly && <td className="r t-success">{fmt(sum.profit)}</td>}
-              <td colSpan={3} />
+              <td colSpan={readOnly ? 3 : 4} />
             </tr>
           </tfoot>
         </table>
@@ -439,7 +498,7 @@ export default function OrdersTable(props: Props) {
       <p className="table-note">
         {readOnly
           ? "ចុច «មើល» ដើម្បីមើលបញ្ជីទំនិញនៃការបញ្ជាទិញ។"
-          : "ចុចលើកូដ លុយដើម ឬ លុយលក់ ដើម្បីកែ · Enter ទៅជួរបន្ទាប់ · Esc បោះបង់ · ចុចលើស្ថានភាព ដើម្បីប្តូរ។"}
+          : "ចុចលើកូដ លុយដើម លុយលក់ ឬ កំណត់ចំណាំ ដើម្បីកែ · Enter ទៅជួរបន្ទាប់ · Esc បោះបង់ · ចុចលើស្ថានភាព ដើម្បីប្តូរ។"}
       </p>
     </section>
   );

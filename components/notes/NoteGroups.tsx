@@ -149,6 +149,12 @@ export default function NoteGroups({
                             />
                           </td>
                           <td className="cell">
+                            {/* The order's own note from the sales sheet, in red as it is there; then this note's own. */}
+                            {it.orderNote && it.orderNote !== it.note && (
+                              <span className="order-note-line" title={`កំណត់ចំណាំក្នុងតារាងលក់ · ${it.orderNote}`}>
+                                {it.orderNote}
+                              </span>
+                            )}
                             <SavedInput
                               className="cell-input note"
                               data-field="note"

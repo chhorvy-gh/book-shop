@@ -1,10 +1,10 @@
 "use client";
 
 // Edit one order (the mockup's #edit-dialog): its code, the ① cost list and ② sale list as pasted from Telegram,
-// the amounts (summed from the lists when there are any), its status; print its invoice or delete it.
+// the amounts (summed from the lists when there are any), its status and note; print its invoice or delete it.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmt, latinDigits, prefixOf } from "@/lib/format";
-import { STATUS, findCode, listText, readLists, sumItems } from "@/lib/orders";
+import { NOTE_MAX, STATUS, findCode, listText, readLists, sumItems, tidyNote } from "@/lib/orders";
 import type { Item, Mart, Order, Status } from "@/lib/types";
 import { Icon } from "../icons";
 import { Dialog, Tabs } from "../ui";
@@ -15,6 +15,7 @@ export interface OrderEdit {
   sale: number;
   status: Status;
   items: Item[];
+  note: string;
 }
 
 function EditForm({
@@ -43,6 +44,7 @@ function EditForm({
   const [cost, setCost] = useState(order.cost ? String(order.cost) : "");
   const [sale, setSale] = useState(order.sale ? String(order.sale) : "");
   const [status, setStatus] = useState<Status>(order.status);
+  const [note, setNote] = useState(order.note ?? "");
   const codeRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const id = requestAnimationFrame(() => codeRef.current?.focus());
@@ -69,7 +71,7 @@ function EditForm({
       : seller
         ? { cls: "sub", text: `អ្នកលក់៖ ${seller}` }
         : { cls: "field-error t-warning", text: "មិនស្គាល់អ្នកលក់នៃកូដនេះ" };
-  const edit = (): OrderEdit => ({ code: clean, cost: totalCost, sale: totalSale, status, items });
+  const edit = (): OrderEdit => ({ code: clean, cost: totalCost, sale: totalSale, status, items, note: tidyNote(note) });
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -191,6 +193,23 @@ function EditForm({
           items={(Object.keys(STATUS) as Status[]).map((k) => ({ key: k, label: STATUS[k].label }))}
         />
       </div>
+      <label className="field" htmlFor="ed-note">
+        កំណត់ចំណាំ
+        <input
+          className="input"
+          id="ed-note"
+          type="text"
+          autoComplete="off"
+          maxLength={NOTE_MAX}
+          placeholder="ឧ. អតិថិជនបង់ថ្ងៃសុក្រ"
+          aria-describedby="ed-note-help"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <span className="sub" id="ed-note-help">
+          សម្រាប់ហាងមើលតែប៉ុណ្ណោះ · មិនចេញលើវិក្កយបត្រទេ
+        </span>
+      </label>
       <div className="dialog-actions">
         <button type="button" className="btn btn-danger-soft" style={{ marginRight: "auto" }} onClick={onDelete}>
           <Icon name="trash" size={16} />

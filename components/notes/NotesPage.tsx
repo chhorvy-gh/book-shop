@@ -43,7 +43,9 @@ export default function NotesPage() {
   const scope = items.filter((i) => (!month || inMonth(i, month)) && (!week || i.w.no === week.no));
   const q = latinDigits(query.trim()).toLowerCase();
   const visible = scope.filter(
-    (i) => passes(i, filter) && (!q || i.code.toLowerCase().includes(q) || i.seller.includes(q) || i.note.toLowerCase().includes(q)),
+    (i) =>
+      passes(i, filter) &&
+      (!q || i.code.toLowerCase().includes(q) || i.seller.includes(q) || i.note.toLowerCase().includes(q) || i.orderNote.toLowerCase().includes(q)),
   );
   const count = (f: Filter) => scope.filter((i) => passes(i, f)).length;
 
